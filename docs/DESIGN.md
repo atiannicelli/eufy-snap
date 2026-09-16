@@ -190,7 +190,7 @@ on the Mac; the Telegram chat should be private. Pin the SDK to an exact version
 
 | Phase | Scope | Exit criterion |
 |---|---|---|
-| **0 — Spike** | `login`, `devices`, `presets`, single `rotate`, `snapshotLive` against the real S340. | PTZ moves, a fresh JPEG lands on disk, session restores without 2FA on second run. Also learn: does the SDK surface any PTZ *position* event for the SoloCam (would enable closed-loop later)? Does `snapshotLive` return the wide lens by default? How long does wake + stream take on battery? |
+| **0 — Spike** | `login`, `devices`, `presets`, single `rotate`, `snapshotLive` against the real S340. | PTZ moves, a fresh JPEG lands on disk, session restores without 2FA on second run. Also learn: does the S340 emit `ptzNotify` position events (enables verification, §11.1-D)? Does `snapshotLive` return the wide lens by default? How long does wake + stream take on battery? Does manual PTZ auto-return without motion? |
 | **1 — MVP** | Sun model, `plan`, `calibrate`, Positioner, `snap`, `run` with wait/catch-up, local store + sidecars, LaunchDaemon `install`. | Runs unattended for 3 consecutive sunrises. |
 | **2 — Hardening** | Telegram success/failure posts, retries and degraded paths, lock file, `doctor`, reference frames, pmset guidance. | A forced failure (wrong password) produces a Telegram alert, no login loop. |
 | **3 — Later** | Pixel-shift auto-calibration, mount-drift detection, weather skip, time-lapse assembly script (`ffmpeg` glob → mp4), multiple cameras. | — |
@@ -205,8 +205,16 @@ on the Mac; the Telegram chat should be private. Pin the SDK to an exact version
      Then walk past it — does it track, and how long until it returns?
    - *Mitigation A (preferred):* turn **Motion Tracking (Pan & Tilt auto-tracking)** off in the app if
      it isn't needed; then nothing moves the camera but us.
-   - *Mitigation B:* have the tool disable motion tracking for the duration of the sequence and
-     re-enable it afterwards, if the SDK exposes that setting for the S340 (check in the spike).
+   - *Mitigation B (chosen — owner relies on motion tracking):* have the tool disable motion tracking
+     for the duration of the sequence and re-enable it afterwards. The SDK catalogs the wire command
+     (`CMD_INDOOR_PAN_MOTION_TRACK` 6016, also `CMD_SET_CONTINUOUS_TRACKING_TIME` 1070) but exposes
+     **no typed method and no raw-send escape hatch** — its policy is that unverified writes throw. So
+     this needs a small **upstream PR** adding e.g. `dev.ptz().motionTracking(enabled)` (grounded in the
+     app's command builder, per the SDK's contribution rules), or a temporary local patch until merged.
+   - *Mitigation D (verify, don't just prevent):* the SDK decodes PTZ position notifications
+     (`ptzNotify`, pan/tilt floats) for some models. If the S340 reports them, the tool reads the pan
+     after positioning, compares it to the expected value, and re-runs `goto(home) → steps` if tracking
+     moved the camera. Spike must confirm whether the S340 emits these.
    - *Mitigation C:* keep the sequence short (< 45 s) and accept a rare lost frame; the sidecar records
      it if `snapshotLive` shows the home view (detectable later via pixel diff against the reference frame).
 2. **Rotate step size** — unknown until calibration; if it turns out coarse (≥ 10°), the "tiny daily change" will be a jump every 1–3 months instead. Acceptable?
