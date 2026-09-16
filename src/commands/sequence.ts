@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { connect, sleep } from "../client.ts";
 import { parseDirection } from "./rotate.ts";
-import { getDevice, requireCamera, requirePtz, stopwatch, ts } from "./shared.ts";
+import { getDevice, isStoredPreset, requireCamera, requirePtz, stopwatch, ts } from "./shared.ts";
 
 export interface SequenceOptions {
   home: string;
@@ -10,7 +10,7 @@ export interface SequenceOptions {
   steps: string;
   stepDelay: string;
   settle: string;
-  noReturn?: boolean;
+  return: boolean;
 }
 
 /**
@@ -35,7 +35,7 @@ export async function sequenceCommand(sn: string, opts: SequenceOptions): Promis
   eufy.on("ptzNotify", (e) => notifies.push({ t: elapsed(), ...e }));
 
   const preset = ptz.preset();
-  const list = (await preset.list?.()) ?? [];
+  const list = ((await preset.list?.()) ?? []).filter(isStoredPreset);
   if (!list.some((p) => p.id === home)) {
     throw new Error(`home preset ${home} not stored on camera (have: ${list.map((p) => p.id).join(", ") || "none"})`);
   }
@@ -63,7 +63,7 @@ export async function sequenceCommand(sn: string, opts: SequenceOptions): Promis
     console.error(`[${elapsed()}] snapshot FAILED: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  if (!opts.noReturn) {
+  if (opts.return) {
     console.log(`[${elapsed()}] return to home preset ${home}`);
     await preset.goto(home);
     await sleep(2000);

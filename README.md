@@ -1,9 +1,11 @@
 # eufy-snap
 
-Daily sunrise-tracking snapshots from a Eufy SoloCam S340. Design: [`docs/DESIGN.md`](docs/DESIGN.md).
+Daily sunrise snapshots from a Eufy SoloCam S340, shot from a fixed preset. Design: [`docs/DESIGN.md`](docs/DESIGN.md).
 
-**Status: Phase 0 spike.** The CLI below exists to prove login, PTZ, presets and live snapshots work
-against the real camera before the scheduler and sun model are built.
+**Status: Phase 0 spike complete** (findings in `docs/DESIGN.md` §10.1). The CLI below proved login,
+presets and live snapshots against the real camera, and showed the S340's `rotate()` is a
+press-and-hold keep-alive rather than a step — which is why the design shoots from a preset instead
+of re-aiming daily. Phase 1 (scheduler, verification, storage, Telegram) is next.
 
 ## Requirements
 
@@ -37,8 +39,9 @@ Run these in order; each answers a question from the design's spike exit criteri
 | 7 | `npm run dev -- watch <sn> --seconds 90 --nudge` | Dumps every PTZ status frame verbatim. Also move the camera from the Eufy app during this window. Question: does any payload contain a position/angle? |
 | 8 | `npm run dev -- sequence <sn> --home 0 --dir right --steps 2` | Full daily rehearsal with timings. The JPEG should show the view two steps right of home, and the camera should end at home. |
 | 9 | Move the camera from the app, wait 3 minutes without motion | Does it return to the default preset on its own? Then walk past it: does it track, and how long until it returns? |
+| 10 | `npm run dev -- sweep <sn> --from 1 --dir right` | Steps in bursts, snapshotting after each, until the view stops changing (the pan end-stop). Reports commands-to-stop and, given `--range`, °/command. `--batch/--step-delay/--zoom/--speed` vary the burst shape. |
 
-Record findings in `docs/DESIGN.md` §10 (Phase 0) before moving to Phase 1.
+Findings are recorded in `docs/DESIGN.md` §10.1. Frames land in `out/`; `sweep` writes one folder per run.
 
 ## Exit codes
 
