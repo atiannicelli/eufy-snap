@@ -18,11 +18,11 @@ roughly ESE). Runs unattended on an always-on Mac with no user logged in.
 | Topic | Decision |
 |---|---|
 | Camera | **SoloCam S340 (T8170)** "Bailey Island", `T8170T1025073FBB`, standalone Wi‑Fi (no HomeBase), battery + solar. Reached over Eufy's P2P relay (the Mac is not on its LAN). |
-| Position | **Fixed preset**, aimed once by the owner in the Eufy app. The tool never calls `rotate()`; it only `goto`s the preset and **verifies** it got there (§3 Presetter). |
-| Preset choice | Recommend making it the camera's **default preset**, so the firmware's own auto-return after motion tracking brings the camera back to our frame anyway. |
+| Position | **Fixed preset #4** (`shoot_preset`), aimed once by the owner in the Eufy app. The tool never calls `rotate()`; it only `goto`s the preset and **verifies** it got there (§3 Presetter). |
+| Preset choice | Shot from **#4**; the camera's default stays **#1** (the owner's security view, where motion tracking auto-returns). |
 | Zoom | Wide lens only, 1×. |
 | Time | Sunrise + configurable offset (minutes), from lat/long, via `suncalc`. |
-| After the shot | Nothing to undo — the camera is already on its preset. |
+| After the shot | `goto(1)` — return to the owner's security view (`home_preset`). |
 | Storage | Local folder on the Mac, keep everything, JSON sidecar per photo. |
 | Delivery | Post each day's photo to a **Telegram bot** chat; failures also go there, so silence is meaningful. |
 | Runtime | macOS **LaunchDaemon** (works logged-out), dedicated service user. |
@@ -44,7 +44,7 @@ Moving the camera, video, motion events, web UI, multiple cameras, cloud storage
 | **PTZ writes are fire-and-forget, no ack**, and on the S340 `ptz.rotate()` is a *press-and-hold keep-alive*, not a step (§10.1). `preset.goto()` **can silently fail** (observed from the far end-stop). | Never trust a move. Verify the frame against a stored reference and retry; alert if still off. |
 | `camera.snapshotLive()` is the fresh-frame path; each stream wakes the camera and costs battery. Cold snapshot 5–8 s; frame size **varies** (1280×720, 2304×1296, 2880×1616) with stream state. | One short session per day. Accept a frame only above a configured minimum width, else re-shoot after a short wait. |
 | Back-to-back P2P sessions can hit `P2P connect timeout` until the camera releases the previous one (~15–20 s). | Retry connect with a 20 s backoff; never run two sessions concurrently (lock file). |
-| S340 exposes **10 preset slots** (`list()` returns all; occupied = `raw.enable === 1`, default = `raw.isdefault === 1`) and auto-returns to the default preset after a motion-tracking event on a firmware timer with no user setting. | Make our preset the default. Motion tracking is the only thing that can move the camera off-frame at shot time; verification catches it. |
+| S340 exposes **10 preset slots** (`list()` returns all; occupied = `raw.enable === 1`, default = `raw.isdefault === 1`) and auto-returns to the default preset after a motion-tracking event on a firmware timer with no user setting. | Shoot from #4, return to #1. Motion tracking can move the camera off #4 between `goto` and the shot; verification catches it. |
 | S340 pan range ≈ 355° with hard end-stops; commands into a stop are silently dropped. | Irrelevant to a preset design, except that `goto` from a stop failed once — hence verify + retry. |
 
 ## 3. Architecture
@@ -73,7 +73,7 @@ flowchart LR
 |---|---|
 | **CLI `eufy-snap`** | `login` (interactive 2FA/captcha), `devices`, `presets` (list / goto / set-default), `reference` (goto preset, snapshot, store as `reference.jpg`), `plan [date]` (print sunrise and fire time), `snap` (do the full sequence now), `run` (daemon entrypoint: wait for today's fire time then snap), `install` (write + load LaunchDaemon), `doctor`. Spike-only commands (`rotate`, `sweep`, `watch`, `sequence`) stay behind a `dev` group. |
 | **Sun model** | `suncalc`: sunrise for `location` on a date. `plan(date) → {sunrise, fireAt}`. |
-| **Presetter** | `goto(preset)` → settle → `snapshotLive()` → `frameShift(reference, frame)`; on-preset if `|shift| < max_shift` and `mad < max_mad`. If off: `goto` again with a longer settle and re-shoot (once). Still off → keep the frame, flag `off_preset`, alert. |
+| **Presetter** | `goto(shoot_preset)` → settle → `snapshotLive()` → `frameShift(reference, frame)`; on-preset if `|shift| < max_shift` and `mad < max_mad`. If off: `goto` again with a longer settle and re-shoot (once). Still off → keep the frame, flag `off_preset`, alert. Finally `goto(home_preset)` (best effort; failure is logged, not fatal). |
 | **Capturer** | `snapshotLive()` with retries; re-shoot if `width < min_width` (stream still low-res). |
 | **Frame compare** | `src/frame-shift.ts`: both frames to 320×180 grey, brute-force horizontal MAD search. Good enough for "same view / moved / how much"; not general registration. |
 | **Store** | `photos/YYYY/YYYY-MM-DD.jpg` + sidecar `.json` (sunrise UTC/local, fireAt, actual shot time, width×height, shift vs reference, retries, `off_preset`, camera FW, SDK version, duration). |
@@ -95,16 +95,17 @@ sequenceDiagram
     R->>R: sleep until fireAt (wall-clock)
     R->>C: login() from session store
     R->>C: getDevice(serial)
-    R->>K: preset.goto(preset)
+    R->>K: preset.goto(shoot_preset = 4)
     R->>R: settle
     R->>K: snapshotLive() → JPEG
     R->>R: frameShift(reference, JPEG)
     alt off-preset
-        R->>K: preset.goto(preset)
+        R->>K: preset.goto(shoot_preset)
         R->>R: settle × 2
         R->>K: snapshotLive()
     end
     R->>R: write photo + sidecar
+    R->>K: preset.goto(home_preset = 1)
     R->>T: sendPhoto(caption)
     R->>R: exit 0
 ```
@@ -113,6 +114,7 @@ Degraded paths:
 - Snapshot fails after retries → Telegram error, exit 30.
 - Session needs a human (2FA/captcha) → Telegram "needs login", exit 10, **no login retry loop** (that is what triggers Eufy captchas/cooldowns).
 - Off-preset after retry → photo kept and posted with ⚠️, sidecar `off_preset: true`, exit 20.
+- Return `goto(home_preset)` fails → logged and noted in the caption; motion tracking's own auto-return will bring it back to #1 eventually.
 - P2P connect timeout → wait 20 s, retry up to 3×.
 
 ## 5. Configuration (proposed)
@@ -126,7 +128,8 @@ location:
 
 camera:
   serial: T8170T1025073FBB
-  preset: 1                     # slot to shoot from; make it the camera's default preset
+  shoot_preset: 4               # slot aimed at the sunrise; saved by the owner in the app
+  home_preset: 1                # camera's default / security view; returned to after the shot
   settle_ms: 6000               # after goto, before shooting
 
 schedule:
@@ -156,7 +159,7 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 ```
 
-`reference.jpg` is written by `eufy-snap reference` (goto preset → settle → snapshot) and should be
+`reference.jpg` is written by `eufy-snap reference` (goto `shoot_preset` → settle → snapshot → goto `home_preset`) and should be
 re-taken whenever the owner re-aims the preset. A daytime reference compares better than a dawn one;
 the verifier ignores the top 10 % (sky) and bottom 30 % (near field) of the frame.
 
@@ -177,8 +180,8 @@ the verifier ignores the top 10 % (sky) and bottom 30 % (near field) of the fram
   `install`), stdout/stderr to `/Users/eufysnap/logs/`.
 - `sudo pmset -a sleep 0 disksleep 0; pmset -a womp 1` so a logged-out Mac stays awake.
 - `install` renders the plist from config and `launchctl bootstrap system` loads it; `doctor` verifies
-  Node/ffmpeg, session validity, camera reachable over P2P, `preset` occupied (and warns if not the
-  default), `reference.jpg` present, store dir writable, daemon loaded, Telegram reachable.
+  Node/ffmpeg, session validity, camera reachable over P2P, `shoot_preset` and `home_preset` occupied,
+  `reference.jpg` present, store dir writable, daemon loaded, Telegram reachable.
 
 ## 8. Observability
 
@@ -230,10 +233,9 @@ on the Mac; the Telegram chat should be private. Pin the SDK to an exact version
 
 ## 11. Remaining open items
 
-1. **Aiming the preset.** Owner re-aims the chosen preset in the Eufy app so the sunrise sector
-   (≈ 57°–123° true over the year at Bailey Island) sits in frame with the horizon in the upper
-   third, then runs `eufy-snap reference`. Which slot — reuse #1 (already default) or a new slot
-   set as default? If a new slot, motion tracking will return there instead of the owner's current #1.
+1. **Aiming preset 4.** ✅ Decided: shoot from **#4**, return to **#1**. Owner aims the camera in the
+   Eufy app so the sunrise sector (≈ 57°–123° true over the year at Bailey Island) sits in frame with
+   the horizon in the upper third, saves it as preset 4, then runs `eufy-snap reference`.
 2. **`goto` failure mode.** Reproduce: park at an end-stop, `goto` with 20 s settle — does it need
    time, or does it refuse? Affects the retry strategy (longer settle vs. give up). Low stakes for
    v1 because the camera lives on the preset anyway.
