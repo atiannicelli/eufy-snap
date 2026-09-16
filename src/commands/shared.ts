@@ -21,6 +21,12 @@ export function requireCamera(dev: Device): CameraApi {
   return cam;
 }
 
+/** `preset().list()` returns every slot on the S340; an occupied one reports `enable: 1`. */
+export function isStoredPreset(p: { id: number; raw: unknown }): boolean {
+  const raw = p.raw as { enable?: unknown } | undefined;
+  return raw?.enable === undefined || raw.enable === 1 || raw.enable === true;
+}
+
 /** Elapsed-time helper for spike timings. */
 export function stopwatch(): () => string {
   const t0 = performance.now();

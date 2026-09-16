@@ -8,6 +8,7 @@ import { presetsCommand } from "./commands/presets.ts";
 import { rotateCommand } from "./commands/rotate.ts";
 import { sequenceCommand } from "./commands/sequence.ts";
 import { snapshotCommand } from "./commands/snapshot.ts";
+import { sweepCommand } from "./commands/sweep.ts";
 import { watchCommand } from "./commands/watch.ts";
 
 loadDotEnv();
@@ -69,6 +70,20 @@ program
   .option("--settle <ms>", "wait after moves before shooting", "6000")
   .option("--no-return", "leave the camera at the target instead of returning home")
   .action(sequenceCommand);
+
+program
+  .command("sweep <sn>")
+  .description("step in one direction in batches, snapshotting, until the pan end-stop; reports steps and °/step")
+  .option("--from <id>", "goto this preset first (use one that sits at the opposite end-stop)")
+  .option("--dir <dir>", "step direction", "right")
+  .option("--batch <n>", "steps per batch (keep the per-batch view shift under ~40% of width)", "6")
+  .option("--step-delay <ms>", "pause between steps", "600")
+  .option("--settle <ms>", "wait after each batch before shooting", "3000")
+  .option("--max <n>", "give up after this many steps", "150")
+  .option("--speed <1|3|5>", "set rotation speed first")
+  .option("--range <deg>", "model's pan range, for °/step", "355")
+  .option("--zoom <n>", "rotate() zoom argument — reportedly scales step size", "1")
+  .action(sweepCommand);
 
 program.parseAsync().catch((e: unknown) => {
   if (e instanceof NeedsHumanError) {

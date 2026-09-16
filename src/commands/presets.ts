@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { connect, sleep } from "../client.ts";
-import { getDevice, requirePtz, stopwatch } from "./shared.ts";
+import { getDevice, isStoredPreset, requirePtz, stopwatch } from "./shared.ts";
 
 export interface PresetsOptions {
   goto?: string;
@@ -19,7 +19,7 @@ export async function presetsCommand(sn: string, opts: PresetsOptions): Promise<
   const preset = ptz.preset();
   const elapsed = stopwatch();
 
-  const list = (await preset.list?.()) ?? [];
+  const list = ((await preset.list?.()) ?? []).filter(isStoredPreset);
   console.log(`[${elapsed()}] ${list.length} stored preset(s): ${list.map((p) => p.id).join(", ") || "(none)"}`);
   for (const p of list) console.log(`    #${p.id} ${JSON.stringify(p.raw)}`);
 
