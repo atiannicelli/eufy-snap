@@ -40,7 +40,7 @@ Video, motion events, web UI, multiple cameras, cloud storage, weather-aware ski
 | One session per device identity per account; a second client evicts the first. | Dedicated account + a fixed `openudid`/`phoneModel` so the tool is one stable "device". |
 | SDK PTZ on SoloCam: `ptz.rotate(dir)` step nudges, `ptz.preset().goto/save/list/setDefault`, rotate **speed 1/3/5 changes step travel**. All PTZ writes are **fire-and-forget, no ack**. | Open-loop positioning. Always move from a known origin (home preset), pin speed, wait a settle time, and re-derive absolute step count daily so error never accumulates. |
 | S340 is **battery/solar, no RTSP**. Each P2P livestream wakes the camera and costs battery. | `camera.snapshotLive()` is the only fresh-frame path. Keep the session short (< ~60 s), one stream per day. |
-| S340 stores up to **5 presets** and has an app-side **auto-return-to-default** idle timer. | Use one preset as `home`. The auto-return timer must be disabled or longer than our sequence, or it will yank the camera mid-shot. |
+| S340 stores up to **5 presets** and auto-returns to its default preset after a motion-tracking event, on a **firmware-controlled timer with no user setting**. | Use one preset as `home`. Motion tracking can move the camera during our sequence; see open item §11.1 for the spike test and mitigations. |
 | S340 pans 360°, tilts ~70°. Sunrise is on the horizon, so tilt is constant. | Only pan varies day to day; tilt is baked into `home`. |
 | Sunrise azimuth at mid-latitudes swings roughly ±30° around due east over the year, drifting 0.1–0.4°/day. | If a rotate step is a few degrees, the camera physically moves only every few days — matches the stated intent. |
 
@@ -197,7 +197,18 @@ on the Mac; the Telegram chat should be private. Pin the SDK to an exact version
 
 ## 11. Remaining open items
 
-1. **Auto-return timer** on the S340: is it enabled in the app, and what is the timeout? Must be off or > ~45 s.
+1. **Auto-return / motion tracking.** The S340 has **no user-visible auto-return timeout**; returning
+   to the default preset is firmware behaviour that fires after a *motion-tracking* event ends, and
+   community reports say its timing is inconsistent. Risk: motion tracking triggers mid-sequence, the
+   camera follows the subject, then snaps home — ruining that day's frame.
+   - *Spike test:* move the camera via the app, wait 3 min with no motion — does it return on its own?
+     Then walk past it — does it track, and how long until it returns?
+   - *Mitigation A (preferred):* turn **Motion Tracking (Pan & Tilt auto-tracking)** off in the app if
+     it isn't needed; then nothing moves the camera but us.
+   - *Mitigation B:* have the tool disable motion tracking for the duration of the sequence and
+     re-enable it afterwards, if the SDK exposes that setting for the S340 (check in the spike).
+   - *Mitigation C:* keep the sequence short (< 45 s) and accept a rare lost frame; the sidecar records
+     it if `snapshotLive` shows the home view (detectable later via pixel diff against the reference frame).
 2. **Rotate step size** — unknown until calibration; if it turns out coarse (≥ 10°), the "tiny daily change" will be a jump every 1–3 months instead. Acceptable?
 3. **Horizon vs. true sunrise**: if trees/buildings hide the horizon, the visible "sunrise" is later and slightly further south; `sunrise_offset_min` covers time, but does the azimuth need a fixed bias too? (Trivial to add `azimuth_bias_deg`.)
 4. **Battery budget**: one ~30–60 s stream per day is fine on solar; a weekly reference frame doubles that one day a week. Confirm the camera holds charge through winter.
