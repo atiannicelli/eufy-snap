@@ -9,8 +9,9 @@ location:
 camera:
   serial: T8170TXXXXXXXXXX
   shoot_preset: 3               # camera slot aimed at the sunrise (app "preset 4" — the app counts from 1, the camera from 0)
-  home_preset: 1                # camera slot of your security view (the camera's default, "preset 2" in the app); returned to after the shot
-  settle_ms: 6000               # wait after a preset goto before shooting
+  # home_preset: 0              # optional: where to park after the shot. Default = the camera's default preset, which is
+                                # where it returns by itself ~1 min after every session anyway — pick that in the Eufy app
+  settle_ms: 20000              # MAX wait for a pan to finish; the run proceeds as soon as the view stops changing (a long pan takes ~16 s)
 
 schedule:
   sunrise_offset_min: 5         # shoot this many minutes after sunrise (negative = before)

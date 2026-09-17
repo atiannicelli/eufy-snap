@@ -44,12 +44,12 @@ program
 
 program
   .command("presets <sn>")
-  .description("list stored PTZ presets; optionally goto / save / setDefault / fetch thumbnail")
-  .option("--goto <id>", "move to preset id")
+  .description("list stored PTZ presets (marks the camera's default); optionally move to / save / setDefault / fetch thumbnail")
+  .option("--goto <id>", "move to preset id (P2P 6035; the SDK's goto() is a no-op on the S340)")
   .option("--save <id>", "save the camera's CURRENT position into preset id")
-  .option("--set-default <id>", "make preset id the home position (previews it first)")
+  .option("--set-default <id>", "make preset id the default — where the camera rests between sessions (moves there first)")
   .option("--image <id>", "download preset id's thumbnail to out/")
-  .option("--settle <ms>", "wait after a move", "6000")
+  .option("--settle <ms>", "wait after a move (a long pan takes ~16 s)", "20000")
   .action(presetsCommand);
 
 program
@@ -74,7 +74,7 @@ program
 
 program
   .command("snap")
-  .description("shoot now: goto shoot preset → capture → verify → save → return home → Telegram")
+  .description("shoot now: move to shoot preset → capture → verify → save → return home → Telegram")
   .option("--no-telegram", "don't send to Telegram even if configured")
   .action((opts) => snapCommand(withGlobals(opts)));
 
@@ -124,7 +124,7 @@ dev
 dev
   .command("sweep <sn>")
   .description("step in one direction in batches, snapshotting, until the pan end-stop; reports steps and °/step")
-  .option("--from <id>", "goto this preset first (use one that sits at the opposite end-stop)")
+  .option("--from <id>", "move to this preset first (use one that sits at the opposite end-stop)")
   .option("--dir <dir>", "step direction", "right")
   .option("--batch <n>", "steps per batch (keep the per-batch view shift under ~40% of width)", "6")
   .option("--step-delay <ms>", "pause between steps", "600")

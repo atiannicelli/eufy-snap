@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { connect, sleep } from "../client.ts";
-import { getDevice, isStoredPreset, requirePtz, stopwatch } from "./shared.ts";
+import { getDevice, isDefaultPreset, isStoredPreset, movePreset, requirePtz, stopwatch } from "./shared.ts";
 
 export interface PresetsOptions {
   goto?: string;
@@ -11,7 +11,10 @@ export interface PresetsOptions {
   settle: string;
 }
 
-/** Inspect and exercise stored presets. Preset writes are fire-and-forget (no ack from the camera). */
+/**
+ * Inspect and exercise stored presets. Preset writes are fire-and-forget (no ack from the camera).
+ * `--goto` uses `movePreset` (P2P 6035); the SDK's own `goto()` is a no-op on the S340.
+ */
 export async function presetsCommand(sn: string, opts: PresetsOptions): Promise<void> {
   const eufy = await connect(false);
   const dev = await getDevice(eufy, sn);
@@ -21,7 +24,9 @@ export async function presetsCommand(sn: string, opts: PresetsOptions): Promise<
 
   const list = ((await preset.list?.()) ?? []).filter(isStoredPreset);
   console.log(`[${elapsed()}] ${list.length} stored preset(s): ${list.map((p) => p.id).join(", ") || "(none)"}`);
-  for (const p of list) console.log(`    #${p.id} ${JSON.stringify(p.raw)}`);
+  for (const p of list) {
+    console.log(`    #${p.id} (app preset ${p.id + 1}) ${JSON.stringify(p.raw)}${isDefaultPreset(p) ? "  ← default: the camera returns here by itself after every session" : ""}`);
+  }
 
   if (opts.save !== undefined) {
     const id = Number(opts.save);
@@ -30,16 +35,16 @@ export async function presetsCommand(sn: string, opts: PresetsOptions): Promise<
   }
   if (opts.goto !== undefined) {
     const id = Number(opts.goto);
-    if (!list.some((p) => p.id === id)) console.warn(`  warning: preset ${id} not in list — goto will be a silent no-op`);
-    console.log(`[${elapsed()}] goto preset ${id} …`);
-    await preset.goto(id);
+    if (!list.some((p) => p.id === id)) console.warn(`  warning: preset ${id} not in list — move will be a silent no-op`);
+    console.log(`[${elapsed()}] move to preset ${id} …`);
+    await movePreset(ptz, id);
     await sleep(Number(opts.settle));
     console.log(`[${elapsed()}] settled`);
   }
   if (opts.setDefault !== undefined) {
     const id = Number(opts.setDefault);
-    console.log(`[${elapsed()}] preview ${id} → settle → setDefault ${id} …`);
-    await preset.preview(id);
+    console.log(`[${elapsed()}] move to ${id} → settle → setDefault ${id} …`);
+    await movePreset(ptz, id);
     await sleep(Number(opts.settle));
     await preset.setDefault(id);
   }
