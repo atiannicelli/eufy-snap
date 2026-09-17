@@ -11,10 +11,15 @@ export interface Sidecar {
   shotAt: string;
   timezone: string;
   camera: { serial: string; model: string; firmware?: string };
-  presets: { shoot: number; home: number };
+  /** Camera slots (0-based). `cameraDefault` is the slot the camera returns to by itself after a session. */
+  presets: { shoot: number; home: number; cameraDefault?: number };
   image: { width: number; height: number; bytes: number; attempts: number };
+  /** Shot vs the stored reference image (needs `reference.jpg`). */
   verify?: { shift: number; mad: number; onPreset: boolean; retried: boolean };
+  /** Shot vs a frame taken just before the move — proves the camera actually went somewhere. */
+  motion?: { shift: number; mad: number; moved: boolean };
   offPreset: boolean;
+  /** Return-home command succeeded and, when checkable, the frame matched the pre-move one again. */
   returnedHome: boolean;
   durationMs: number;
   warnings: string[];

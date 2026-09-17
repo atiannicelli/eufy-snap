@@ -8,7 +8,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run --silent lint:no-goto",
+    "lint:no-goto": "! grep -rn --include='*.ts' -E '\\.goto\\(' src || (echo 'preset.goto() re-saves the slot (P2P 6032) — use movePreset() from commands/shared.ts' && exit 1)",
     "dev": "node src/cli.ts"
   },
   "keywords": [],

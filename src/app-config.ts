@@ -6,7 +6,13 @@ import { stateDir } from "./config.ts";
 /** Fully resolved, validated application configuration (see config.example.yaml). */
 export interface AppConfig {
   location: { lat: number; lon: number; timezone: string };
-  camera: { serial: string; shootPreset: number; homePreset: number; settleMs: number };
+  camera: {
+    serial: string;
+    shootPreset: number;
+    /** Where to park after the shot. Unset = the camera's own default preset, which is where it rests anyway. */
+    homePreset: number | undefined;
+    settleMs: number;
+  };
   schedule: { sunriseOffsetMin: number; daemonStart: { hour: number; minute: number }; catchUpMaxMin: number };
   capture: {
     retries: number;
@@ -59,6 +65,10 @@ function optStr(sec: Raw, key: string, where: string): string | undefined {
   return sec[key] === undefined || sec[key] === null ? undefined : str(sec, key, undefined, where);
 }
 
+function optNum(sec: Raw, key: string, where: string): number | undefined {
+  return sec[key] === undefined || sec[key] === null ? undefined : num(sec, key, undefined, where);
+}
+
 function parseHHMM(v: string, where: string): { hour: number; minute: number } {
   const m = /^(\d{1,2}):(\d{2})$/.exec(v);
   const hour = m ? Number(m[1]) : NaN;
@@ -105,8 +115,8 @@ export function loadConfig(explicit?: string): AppConfig {
     camera: {
       serial: str(camera, "serial", undefined, "camera"),
       shootPreset: num(camera, "shoot_preset", undefined, "camera"),
-      homePreset: num(camera, "home_preset", undefined, "camera"),
-      settleMs: num(camera, "settle_ms", 6000, "camera"),
+      homePreset: optNum(camera, "home_preset", "camera"),
+      settleMs: num(camera, "settle_ms", 20_000, "camera"),
     },
     schedule: {
       sunriseOffsetMin: num(schedule, "sunrise_offset_min", 0, "schedule"),
@@ -140,7 +150,7 @@ export function loadConfig(explicit?: string): AppConfig {
     },
   };
   if (Math.abs(cfg.location.lat) > 90 || Math.abs(cfg.location.lon) > 180) throw new Error("config: lat/lon out of range");
-  if (cfg.camera.shootPreset === cfg.camera.homePreset) {
+  if (cfg.camera.homePreset !== undefined && cfg.camera.shootPreset === cfg.camera.homePreset) {
     console.warn("config: shoot_preset equals home_preset — the camera will not move for the shot");
   }
   return cfg;
