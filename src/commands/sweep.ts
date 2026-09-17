@@ -3,7 +3,7 @@ import path from "node:path";
 import { createClient, login, sleep } from "../client.ts";
 import { describeShift, frameShift, type ShiftResult } from "../frame-shift.ts";
 import { parseDirection } from "./rotate.ts";
-import { getDevice, isStoredPreset, requireCamera, requirePtz, stopwatch, ts } from "./shared.ts";
+import { getDevice, isStoredPreset, movePreset, requireCamera, requirePtz, stopwatch, ts } from "./shared.ts";
 
 export interface SweepOptions {
   from?: string;
@@ -55,8 +55,8 @@ export async function sweepCommand(sn: string, opts: SweepOptions): Promise<void
     const preset = ptz.preset();
     const list = ((await preset.list?.()) ?? []).filter(isStoredPreset);
     if (!list.some((p) => p.id === from)) throw new Error(`preset ${from} not stored on camera`);
-    console.log(`[${elapsed()}] goto preset ${from}`);
-    await preset.goto(from);
+    console.log(`[${elapsed()}] move to preset ${from}`);
+    await movePreset(ptz, from);
     await sleep(settle * 2);
   }
 
