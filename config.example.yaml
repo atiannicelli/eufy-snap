@@ -1,0 +1,38 @@
+# eufy-snap configuration. Copy to ~/.eufy-snap/config.yaml (or wherever EUFY_SNAP_CONFIG points).
+# No secrets here — credentials live in the env file (see .env.example).
+
+location:
+  lat: 43.6231                    # Portland Head Light, ME (example)
+  lon: -70.2078
+  timezone: America/New_York    # IANA name; drives DST and the "which day is it" question
+
+camera:
+  serial: T8170TXXXXXXXXXX
+  shoot_preset: 3               # camera slot aimed at the sunrise (app "preset 4" — the app counts from 1, the camera from 0)
+  home_preset: 1                # camera slot of your security view (the camera's default, "preset 2" in the app); returned to after the shot
+  settle_ms: 6000               # wait after a preset goto before shooting
+
+schedule:
+  sunrise_offset_min: 5         # shoot this many minutes after sunrise (negative = before)
+  daemon_start: "04:00"         # pre-dawn launchd trigger; must be before the earliest sunrise+offset of the year
+  catch_up_max_min: 180         # if the daemon starts late, still shoot if within this many minutes of fire time
+
+capture:
+  retries: 3                    # snapshot attempts (camera may still be waking)
+  min_width: 1920               # re-shoot while the stream is still delivering 720p keyframes
+  min_width_wait_ms: 4000       # pause between those re-shoots
+  skip_keyframes: 0             # SDK option: skip the first N keyframes of the burst
+  verify:                       # compare against reference.jpg (from `eufy-snap reference`)
+    max_shift: 0.03             # fraction of frame width
+    max_mad: 25                 # grey-level mean absolute difference; lighting changes raise this
+
+store:
+  dir: photos                   # relative paths are under EUFY_SNAP_HOME (~/.eufy-snap)
+
+telegram:                       # optional — omit the env vars and nothing is sent
+  chat_id_env: TELEGRAM_CHAT_ID
+  bot_token_env: TELEGRAM_BOT_TOKEN
+
+daemon:
+  label: com.eufysnap.daily
+  # user: eufysnap              # run the LaunchDaemon as this account (defaults to the installing user)

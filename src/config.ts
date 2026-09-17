@@ -2,10 +2,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-/** Load `.env` from the cwd if present. Real deployments pass env via launchd instead. */
+/**
+ * Load environment: `.env` in the cwd (development) and `<state dir>/env` (deployment; the LaunchDaemon
+ * points EUFY_SNAP_HOME there). Already-set variables win, so launchd `EnvironmentVariables` override both.
+ */
 export function loadDotEnv(): void {
-  const file = path.resolve(process.cwd(), ".env");
-  if (fs.existsSync(file)) process.loadEnvFile(file);
+  const cwdFile = path.resolve(process.cwd(), ".env");
+  if (fs.existsSync(cwdFile)) process.loadEnvFile(cwdFile);
+  const homeFile = path.join(stateDir(), "env");
+  if (fs.existsSync(homeFile)) process.loadEnvFile(homeFile);
 }
 
 export function requireEnv(name: string): string {
