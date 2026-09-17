@@ -1,52 +1,100 @@
 # eufy-snap
 
-Daily sunrise snapshots from a Eufy SoloCam S340, shot from a fixed preset. Design: [`docs/DESIGN.md`](docs/DESIGN.md).
+Daily sunrise snapshot from a Eufy SoloCam S340, shot from a fixed preset, stored locally forever and
+(optionally) posted to Telegram. Runs unattended on an always-on Mac as a LaunchDaemon.
+Design: [`docs/DESIGN.md`](docs/DESIGN.md).
 
-**Status: Phase 0 spike complete** (findings in `docs/DESIGN.md` §10.1). The CLI below proved login,
-presets and live snapshots against the real camera, and showed the S340's `rotate()` is a
-press-and-hold keep-alive rather than a step — which is why the design shoots from a preset instead
-of re-aiming daily. Phase 1 (scheduler, verification, storage, Telegram) is next.
+**Status: Phase 1 built and tested against the camera** (2026-09-17, `docs/DESIGN.md` §10.2). Next:
+run it through a few real sunrises, then create the Telegram bot.
+
+## How it works
+
+Every day at `daemon_start` (04:00) launchd starts `eufy-snap run`, which computes today's sunrise for
+your lat/lon, sleeps until sunrise + `sunrise_offset_min`, then:
+
+1. `goto(shoot_preset)` — the preset you aimed at the sunrise in the Eufy app — and settle
+2. grab a live frame, re-shooting until it is at least `min_width` wide
+3. compare it with `reference.jpg`; if the view has shifted, `goto` again and re-shoot once
+4. save `photos/YYYY/YYYY-MM-DD.jpg` + a `.json` sidecar (timings, verification, warnings)
+5. `goto(home_preset)` — back to your security view
+6. send the photo to Telegram (if configured), or an alert if anything failed
+
+The S340 cannot be nudged in fine steps (see the design's §10.1), which is why a saved preset is the
+aiming mechanism. **Preset numbering:** the Eufy app shows presets 1–4; the camera stores them in
+slots 0–3. Config uses camera slots — app "preset 4" is `shoot_preset: 3`.
 
 ## Requirements
 
-- Node ≥ 24.5 (`node --version`)
-- ffmpeg on `PATH` (`brew install ffmpeg`) — needed for `snapshot` and `sequence`
-- A **dedicated Eufy account** with the camera shared to it (do not use your main account; Eufy
-  allows one active session per device identity per account and will log your phone out)
+- Node ≥ 24.5 (`node --version`), ffmpeg on `PATH` (`brew install ffmpeg`)
+- A **dedicated Eufy account** with the camera shared to it (Eufy allows one active session per
+  device identity per account; using your main account logs your phone out)
+- The camera aimed at the sunrise and saved as a preset in the Eufy app
 
 ## Setup
 
 ```bash
-npm install
-cp .env.example .env      # fill in the tool account's EUFY_EMAIL / EUFY_PASSWORD / EUFY_COUNTRY
+npm install && npm run build
+cp .env.example .env                                # tool account's EUFY_EMAIL / EUFY_PASSWORD / EUFY_COUNTRY
+cp config.example.yaml ~/.eufy-snap/config.yaml     # then edit: lat/lon, timezone, serial, presets
+node dist/cli.js login                              # once; 2FA prompt; saves ~/.eufy-snap/session.json
+node dist/cli.js devices                            # confirm the camera and note its serial
+node dist/cli.js presets <sn>                       # confirm shoot_preset / home_preset slots are stored
+node dist/cli.js reference                          # shoot from the preset → ~/.eufy-snap/reference.jpg — look at it!
+node dist/cli.js plan --days 7                      # sanity-check sunrise / shoot times
+node dist/cli.js snap                               # full dry run right now (saves a photo, returns home)
 ```
 
-Commands run directly from TypeScript (`node src/cli.ts …`) or from the build (`npm run build && node dist/cli.js …`).
-`npm run dev -- <command>` is shorthand for the former.
+All runtime state lives under `EUFY_SNAP_HOME` (default `~/.eufy-snap`): `config.yaml`, `env`,
+`session.json`, `reference.jpg`, `photos/`, `logs/`, `run.lock`. During development `node src/cli.ts …`
+(or `npm run dev -- …`) runs the TypeScript directly.
 
-## Phase 0 runbook
+## Deploy as a LaunchDaemon
 
-Run these in order; each answers a question from the design's spike exit criteria.
+```bash
+cp .env ~/.eufy-snap/env && chmod 600 ~/.eufy-snap/env   # the daemon has no shell env; secrets come from here
+node dist/cli.js install                                  # renders the plist, checks prerequisites, prints the sudo steps
+```
 
-| Step | Command | What to check |
-|---|---|---|
-| 1 | `npm run dev -- login` | Prompts for the 2FA code sent to the tool account. Prints devices. Session saved to `~/.eufy-snap/session.json`. |
-| 2 | `npm run dev -- devices` | Run **twice**: second run must not ask for 2FA (session restored). S340 shows `PTZ BATTERY CAMERA PRESETS` flags. Note the serial. |
-| 3 | `npm run dev -- presets <sn>` | Lists presets stored on the camera. Save the home view in the app first (or `--save 0`). |
-| 4 | `npm run dev -- rotate <sn> right 1` | Camera visibly steps once. Note any `ptzNotify` lines — that is the camera's status payload. |
-| 5 | `npm run dev -- rotate <sn> right 3 --speed 3` | Confirms speed can be pinned and steps are consistent. |
-| 6 | `npm run dev -- snapshot <sn>` | Fresh JPEG in `out/`. Note the time to first frame on a sleeping battery camera and the resolution (wide lens expected). |
-| 7 | `npm run dev -- watch <sn> --seconds 90 --nudge` | Dumps every PTZ status frame verbatim. Also move the camera from the Eufy app during this window. Question: does any payload contain a position/angle? |
-| 8 | `npm run dev -- sequence <sn> --home 0 --dir right --steps 2` | Full daily rehearsal with timings. The JPEG should show the view two steps right of home, and the camera should end at home. |
-| 9 | Move the camera from the app, wait 3 minutes without motion | Does it return to the default preset on its own? Then walk past it: does it track, and how long until it returns? |
-| 10 | `npm run dev -- sweep <sn> --from 1 --dir right` | Steps in bursts, snapshotting after each, until the view stops changing (the pan end-stop). Reports commands-to-stop and, given `--range`, °/command. `--batch/--step-delay/--zoom/--speed` vary the burst shape. |
+Then run the printed commands (`sudo cp … /Library/LaunchDaemons/`, `sudo launchctl bootstrap system …`,
+`sudo pmset …`). `install` never touches `/Library` itself. Re-run `install` + the `cp`/`bootstrap`
+steps after changing `daemon_start`, the Node path, or moving the checkout.
 
-Findings are recorded in `docs/DESIGN.md` §10.1. Frames land in `out/`; `sweep` writes one folder per run.
+Useful afterwards:
+
+```bash
+tail -f ~/.eufy-snap/logs/eufy-snap.log
+sudo launchctl kickstart -k system/com.eufysnap.daily     # fire the daemon now (it skips if today's photo exists)
+node dist/cli.js run --at 07:30 --no-telegram             # rehearse the wait/shoot path at a chosen time
+```
+
+`run` is idempotent: it exits if today's photo exists, waits if it is early, catches up if it is late by
+less than `catch_up_max_min`, and alerts + skips beyond that. A second concurrent `run` is rejected by
+`run.lock`.
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `login` | Interactive first-time login (2FA/captcha). Persists the session. |
+| `devices` | List devices and capabilities. |
+| `presets <sn>` | List camera preset slots; `--goto/--save/--set-default/--image`. |
+| `reference` | Capture the verification frame from `shoot_preset`; keeps the previous as `reference.prev.jpg`. |
+| `plan [date] [--days n]` | Sunrise and shoot time for a date; warns if a day fires before `daemon_start`. |
+| `snap [--no-telegram]` | Shoot now. |
+| `run [--at HH:MM] [--no-telegram]` | Daemon entry point: wait / catch up / skip, then shoot. |
+| `install [--print] [--node path]` | Render the LaunchDaemon plist and print the activation steps. |
+| `dev …` | Phase 0 spike tools: `rotate`, `snapshot`, `watch`, `sequence`, `sweep`. |
+
+Global `-c, --config <file>` overrides `$EUFY_SNAP_CONFIG` / `~/.eufy-snap/config.yaml`.
 
 ## Exit codes
 
-`0` ok · `1` error · `10` login needs a human (2FA/captcha) — run `login` interactively · `30` snapshot failed
+`0` ok · `1` error / skipped · `10` login needs a human (2FA/captcha) — run `login` interactively ·
+`20` photo taken but the camera appears off-preset · `30` no usable frame · `40` photo saved but
+Telegram delivery failed
 
 ## Logging
 
-Set `EUFY_LOG_LEVEL=debug` in `.env` to see the SDK's own diagnostics (P2P, cloud calls).
+Runs log one line per event to stdout and `~/.eufy-snap/logs/eufy-snap.log`. `EUFY_LOG_LEVEL=debug`
+adds per-frame detail and the SDK's own P2P/cloud diagnostics. The `EHOSTUNREACH` lines the SDK prints
+when the Mac is not on the camera's LAN are harmless — the relay path is used.
