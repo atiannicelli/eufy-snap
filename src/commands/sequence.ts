@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { connect, sleep } from "../client.ts";
 import { parseDirection } from "./rotate.ts";
-import { getDevice, isStoredPreset, requireCamera, requirePtz, stopwatch, ts } from "./shared.ts";
+import { getDevice, isStoredPreset, movePreset, requireCamera, requirePtz, stopwatch, ts } from "./shared.ts";
 
 export interface SequenceOptions {
   home: string;
@@ -40,8 +40,8 @@ export async function sequenceCommand(sn: string, opts: SequenceOptions): Promis
     throw new Error(`home preset ${home} not stored on camera (have: ${list.map((p) => p.id).join(", ") || "none"})`);
   }
 
-  console.log(`[${elapsed()}] goto home preset ${home}`);
-  await preset.goto(home);
+  console.log(`[${elapsed()}] move to home preset ${home}`);
+  await movePreset(ptz, home);
   await sleep(settle);
 
   console.log(`[${elapsed()}] ${steps} step(s) ${direction}, ${stepDelay}ms apart`);
@@ -65,7 +65,7 @@ export async function sequenceCommand(sn: string, opts: SequenceOptions): Promis
 
   if (opts.return) {
     console.log(`[${elapsed()}] return to home preset ${home}`);
-    await preset.goto(home);
+    await movePreset(ptz, home);
     await sleep(2000);
   }
 

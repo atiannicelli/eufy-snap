@@ -4,24 +4,37 @@ Daily sunrise snapshot from a Eufy SoloCam S340, shot from a fixed preset, store
 (optionally) posted to Telegram. Runs unattended on an always-on Mac as a LaunchDaemon.
 Design: [`docs/DESIGN.md`](docs/DESIGN.md).
 
-**Status: Phase 1 built and tested against the camera** (2026-09-17, `docs/DESIGN.md` §10.2). Next:
-run it through a few real sunrises, then create the Telegram bot.
+**Status: Phase 1 built; preset-move bug fixed** (2026-09-17, `docs/DESIGN.md` §10.3–10.4). Next:
+run it through a few real sunrises.
+
+> ⚠️ **Builds before the fix (anything using the SDK's `preset.goto()`) never moved the camera** —
+> every "shot from the preset" was really the camera's resting view. Presets were not harmed; just
+> re-take `reference` with the fixed build.
 
 ## How it works
 
 Every day at `daemon_start` (04:00) launchd starts `eufy-snap run`, which computes today's sunrise for
 your lat/lon, sleeps until sunrise + `sunrise_offset_min`, then:
 
-1. `goto(shoot_preset)` — the preset you aimed at the sunrise in the Eufy app — and settle
-2. grab a live frame, re-shooting until it is at least `min_width` wide
-3. compare it with `reference.jpg`; if the view has shifted, `goto` again and re-shoot once
-4. save `photos/YYYY/YYYY-MM-DD.jpg` + a `.json` sidecar (timings, verification, warnings)
-5. `goto(home_preset)` — back to your security view
-6. send the photo to Telegram (if configured), or an alert if anything failed
+1. list the presets; *home* is `home_preset` if set, else the camera's **default** preset
+2. grab a quick frame of where the camera is now
+3. move to `shoot_preset` — the preset you aimed at the sunrise in the Eufy app — and wait until the
+   view stops changing (a long pan takes ~16 s; `settle_ms` caps the wait)
+4. grab a live frame, re-shooting until it is at least `min_width` wide
+5. compare it with `reference.jpg` **and** with the pre-move frame; if the view is off, or the camera
+   didn't move, move again and re-shoot once
+6. save `photos/YYYY/YYYY-MM-DD.jpg` + a `.json` sidecar (timings, verification, motion, warnings)
+7. move home, wait until still, and confirm the frame matches the pre-move one
+8. send the photo to Telegram (if configured), or an alert if anything failed
 
 The S340 cannot be nudged in fine steps (see the design's §10.1), which is why a saved preset is the
 aiming mechanism. **Preset numbering:** the Eufy app shows presets 1–4; the camera stores them in
 slots 0–3. Config uses camera slots — app "preset 4" is `shoot_preset: 3`.
+
+**The camera goes back to its default preset on its own** about a minute after any live session ends
+(design §10.4) — so the default preset *is* your security view, whatever `home_preset` says. Pick it
+in the Eufy app; `eufy-snap presets <sn>` shows which slot is the default. Set
+`EUFY_SNAP_DEBUG_FRAMES=<dir>` to keep every frame a run looked at when something needs a post-mortem.
 
 ## Requirements
 
@@ -38,7 +51,7 @@ cp .env.example .env                                # tool account's EUFY_EMAIL 
 cp config.example.yaml ~/.eufy-snap/config.yaml     # then edit: lat/lon, timezone, serial, presets
 node dist/cli.js login                              # once; 2FA prompt; saves ~/.eufy-snap/session.json
 node dist/cli.js devices                            # confirm the camera and note its serial
-node dist/cli.js presets <sn>                       # confirm shoot_preset / home_preset slots are stored
+node dist/cli.js presets <sn>                       # confirm shoot_preset is stored; note which slot is the default (= home)
 node dist/cli.js reference                          # shoot from the preset → ~/.eufy-snap/reference.jpg — look at it!
 node dist/cli.js plan --days 7                      # sanity-check sunrise / shoot times
 node dist/cli.js snap                               # full dry run right now (saves a photo, returns home)
@@ -77,7 +90,7 @@ less than `catch_up_max_min`, and alerts + skips beyond that. A second concurren
 |---|---|
 | `login` | Interactive first-time login (2FA/captcha). Persists the session. |
 | `devices` | List devices and capabilities. |
-| `presets <sn>` | List camera preset slots; `--goto/--save/--set-default/--image`. |
+| `presets <sn>` | List camera preset slots (marks the default); `--goto/--save/--set-default/--image`. |
 | `reference` | Capture the verification frame from `shoot_preset`; keeps the previous as `reference.prev.jpg`. |
 | `plan [date] [--days n]` | Sunrise and shoot time for a date; warns if a day fires before `daemon_start`. |
 | `snap [--no-telegram]` | Shoot now. |
