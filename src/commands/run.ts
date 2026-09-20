@@ -6,7 +6,7 @@ import { todayHasPhoto } from "../store.ts";
 import { localDateTime, localNoon, planToday, type SunPlan } from "../sun.ts";
 import { alert, bootstrap, deliver, printOutcome, type App, type GlobalOpts } from "./app.ts";
 
-/** Exit codes (DESIGN §8). 10 needs a human, 20 photo taken but off preset, 30 no photo, 40 photo saved but not delivered. */
+/** Exit codes (README "Exit codes"). 10 needs a human, 20 photo taken but off preset, 30 no photo, 40 photo saved but not delivered. */
 export const EXIT = { ok: 0, needsHuman: 10, offPreset: 20, captureFailed: 30, deliveryFailed: 40 } as const;
 
 interface SnapOpts extends GlobalOpts {
