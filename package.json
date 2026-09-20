@@ -1,7 +1,7 @@
 {
   "name": "eufy-snap",
   "version": "0.0.1",
-  "description": "Daily sunrise-tracking snapshots from a Eufy PTZ camera",
+  "description": "Daily sunrise/sunset snapshot from a fixed preset on a Eufy PTZ camera, stored locally and posted to Telegram",
   "directories": {
     "doc": "docs"
   },
