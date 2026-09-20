@@ -352,7 +352,7 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
   const sidecar: Sidecar = {
     date: opts.date,
     reason: opts.reason,
-    ...(opts.plan ? { sunrise: opts.plan.sunrise.toISOString(), fireAt: opts.plan.fireAt.toISOString() } : {}),
+    ...(opts.plan ? { event: opts.plan.event, eventAt: opts.plan.eventAt.toISOString(), fireAt: opts.plan.fireAt.toISOString() } : {}),
     shotAt: new Date().toISOString(),
     timezone: cfg.location.timezone,
     camera: { serial: dev.sn, model: dev.modelName, ...(firmware ? { firmware } : {}) },

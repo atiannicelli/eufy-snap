@@ -16,7 +16,7 @@ interface SnapOpts extends GlobalOpts {
 /** Shoot right now. */
 export async function snapCommand(opts: SnapOpts): Promise<void> {
   const app = bootstrap(opts, "snap");
-  const plan = planToday(app.cfg.location, app.cfg.schedule.sunriseOffsetMin);
+  const plan = planToday(app.cfg.location, app.cfg.schedule);
   process.exitCode = await shoot(app, { reason: "manual", date: plan.date, plan }, opts.telegram);
 }
 
@@ -48,14 +48,14 @@ export async function runCommand(opts: RunOpts): Promise<void> {
 
   try {
     const now = new Date();
-    let plan = planToday(cfg.location, cfg.schedule.sunriseOffsetMin, now);
+    let plan = planToday(cfg.location, cfg.schedule, now);
     if (opts.at) plan = overrideFireAt(plan, opts.at, tz);
 
     if (todayHasPhoto(cfg.store.dir, now, tz)) {
       info(`already have a photo for ${plan.date} — nothing to do`);
       return;
     }
-    info(`plan for ${plan.date}: sunrise ${localDateTime(plan.sunrise, tz)}, shoot at ${localDateTime(plan.fireAt, tz)}`);
+    info(`plan for ${plan.date}: ${plan.event} ${localDateTime(plan.eventAt, tz)}, shoot at ${localDateTime(plan.fireAt, tz)}`);
 
     const lateMs = now.getTime() - plan.fireAt.getTime();
     let reason: DailyOptions["reason"] = "scheduled";
