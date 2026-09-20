@@ -13,6 +13,7 @@ import { EXIT, runCommand, snapCommand } from "./commands/run.ts";
 import { sequenceCommand } from "./commands/sequence.ts";
 import { snapshotCommand } from "./commands/snapshot.ts";
 import { sweepCommand } from "./commands/sweep.ts";
+import { telegramTestCommand } from "./commands/telegram-test.ts";
 import { watchCommand } from "./commands/watch.ts";
 
 loadDotEnv();
@@ -63,6 +64,12 @@ program
   .option("--node <path>", "node binary the daemon should use (default: this one)")
   .option("--print", "print the plist to stdout instead of writing it", false)
   .action((opts) => installCommand(withGlobals(opts)));
+
+program
+  .command("telegram-test")
+  .description("send a test message (or --photo: reference.jpg) to the configured Telegram chat without touching the camera")
+  .option("--photo", "send reference.jpg through the same sendPhoto path the daily run uses", false)
+  .action((opts) => telegramTestCommand(withGlobals(opts)));
 
 // ---- daily ------------------------------------------------------------------------------------
 

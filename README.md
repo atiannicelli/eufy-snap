@@ -54,6 +54,7 @@ node dist/cli.js devices                            # confirm the camera and not
 node dist/cli.js presets <sn>                       # confirm shoot_preset is stored; note which slot is the default (= home)
 node dist/cli.js reference                          # shoot from the preset → ~/.eufy-snap/reference.jpg — look at it!
 node dist/cli.js plan --days 7                      # sanity-check sunrise/sunset and shoot times
+node dist/cli.js telegram-test --photo              # prove bot token / chat id by posting reference.jpg (no camera)
 node dist/cli.js snap                               # full dry run right now (saves a photo, returns home)
 ```
 
