@@ -285,6 +285,13 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
     if (offReference || stuck) {
       retried = true;
       warn(`${offReference ? "off preset" : "camera did not move"} — re-issuing move and re-shooting`);
+      if (settled.timedOut) {
+        // A move issued while the camera is still panning lands somewhere else entirely; let the
+        // first pan finish before re-issuing.
+        warn("the camera was still moving when the shot was taken (settle_ms is too short for this pan) — waiting for it to stop first");
+        const late = await settleUntilStill(cam, cfg, shot.jpeg, settleMs * 2, "settle (finish pan)");
+        info(`pan finished after ${(late.ms / 1000).toFixed(1)} s more${late.timedOut ? " (timed out)" : ""}`);
+      }
       await withP2pRetry("move (retry)", () => movePreset(ptz, shootPreset));
       settled = await settleUntilStill(cam, cfg, shot.jpeg, settleMs * 2, "settle (retry)");
       info(`settled in ${(settled.ms / 1000).toFixed(1)} s${settled.timedOut ? " (timed out)" : ""}`);
