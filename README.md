@@ -1,11 +1,11 @@
 # eufy-snap
 
-Daily sunrise snapshot from a Eufy SoloCam S340, shot from a fixed preset, stored locally forever and
+Daily sunrise **or sunset** snapshot from a Eufy SoloCam S340, shot from a fixed preset, stored locally forever and
 (optionally) posted to Telegram. Runs unattended on an always-on Mac as a LaunchDaemon.
 Design: [`docs/DESIGN.md`](docs/DESIGN.md).
 
 **Status: Phase 1 built; preset-move bug fixed** (2026-09-17, `docs/DESIGN.md` §10.3–10.4). Next:
-run it through a few real sunrises.
+run it through a few real days.
 
 > ⚠️ **Builds before the fix (anything using the SDK's `preset.goto()`) never moved the camera** —
 > every "shot from the preset" was really the camera's resting view. Presets were not harmed; just
@@ -13,12 +13,12 @@ run it through a few real sunrises.
 
 ## How it works
 
-Every day at `daemon_start` (04:00) launchd starts `eufy-snap run`, which computes today's sunrise for
-your lat/lon, sleeps until sunrise + `sunrise_offset_min`, then:
+Every day at `daemon_start` launchd starts `eufy-snap run`, which computes today's sunrise or sunset
+(`schedule.event`) for your lat/lon, sleeps until that time + `offset_min` (negative = before), then:
 
 1. list the presets; *home* is `home_preset` if set, else the camera's **default** preset
 2. grab a quick frame of where the camera is now
-3. move to `shoot_preset` — the preset you aimed at the sunrise in the Eufy app — and wait until the
+3. move to `shoot_preset` — the preset you aimed at the sun in the Eufy app — and wait until the
    view stops changing (a long pan takes ~16 s; `settle_ms` caps the wait)
 4. grab a live frame, re-shooting until it is at least `min_width` wide
 5. compare it with `reference.jpg` **and** with the pre-move frame; if the view is off, or the camera
@@ -41,7 +41,7 @@ in the Eufy app; `eufy-snap presets <sn>` shows which slot is the default. Set
 - Node ≥ 24.5 (`node --version`), ffmpeg on `PATH` (`brew install ffmpeg`)
 - A **dedicated Eufy account** with the camera shared to it (Eufy allows one active session per
   device identity per account; using your main account logs your phone out)
-- The camera aimed at the sunrise and saved as a preset in the Eufy app
+- The camera aimed at the sunrise (or sunset) and saved as a preset in the Eufy app
 
 ## Setup
 
@@ -53,7 +53,7 @@ node dist/cli.js login                              # once; 2FA prompt; saves ~/
 node dist/cli.js devices                            # confirm the camera and note its serial
 node dist/cli.js presets <sn>                       # confirm shoot_preset is stored; note which slot is the default (= home)
 node dist/cli.js reference                          # shoot from the preset → ~/.eufy-snap/reference.jpg — look at it!
-node dist/cli.js plan --days 7                      # sanity-check sunrise / shoot times
+node dist/cli.js plan --days 7                      # sanity-check sunrise/sunset and shoot times
 node dist/cli.js snap                               # full dry run right now (saves a photo, returns home)
 ```
 

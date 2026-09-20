@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { stateDir } from "./config.ts";
+import { SUN_EVENTS, type SunEvent } from "./sun.ts";
 
 /** Fully resolved, validated application configuration (see config.example.yaml). */
 export interface AppConfig {
@@ -13,7 +14,7 @@ export interface AppConfig {
     homePreset: number | undefined;
     settleMs: number;
   };
-  schedule: { sunriseOffsetMin: number; daemonStart: { hour: number; minute: number }; catchUpMaxMin: number };
+  schedule: { event: SunEvent; offsetMin: number; daemonStart: { hour: number; minute: number }; catchUpMaxMin: number };
   capture: {
     retries: number;
     minWidth: number;
@@ -106,6 +107,15 @@ export function loadConfig(explicit?: string): AppConfig {
   const timezone = str(location, "timezone", undefined, "location");
   assertTimezone(timezone);
 
+  const event = str(schedule, "event", "sunrise", "schedule");
+  if (!(SUN_EVENTS as readonly string[]).includes(event)) throw new Error(`config: "schedule.event" must be one of ${SUN_EVENTS.join(", ")}, got "${event}"`);
+  let offsetMin = optNum(schedule, "offset_min", "schedule");
+  if (offsetMin === undefined && schedule.sunrise_offset_min !== undefined) {
+    if (event !== "sunrise") throw new Error(`config: "schedule.sunrise_offset_min" makes no sense with event "${event}" — use "offset_min"`);
+    console.warn('config: "schedule.sunrise_offset_min" is deprecated — rename it to "offset_min"');
+    offsetMin = num(schedule, "sunrise_offset_min", undefined, "schedule");
+  }
+
   const cfg: AppConfig = {
     location: {
       lat: num(location, "lat", undefined, "location"),
@@ -119,8 +129,10 @@ export function loadConfig(explicit?: string): AppConfig {
       settleMs: num(camera, "settle_ms", 20_000, "camera"),
     },
     schedule: {
-      sunriseOffsetMin: num(schedule, "sunrise_offset_min", 0, "schedule"),
-      daemonStart: parseHHMM(str(schedule, "daemon_start", "04:00", "schedule"), "schedule.daemon_start"),
+      event: event as SunEvent,
+      offsetMin: offsetMin ?? 0,
+      // The launchd trigger must precede the earliest fire time of the year: pre-dawn for sunrise, noon for sunset.
+      daemonStart: parseHHMM(str(schedule, "daemon_start", event === "sunset" ? "12:00" : "04:00", "schedule"), "schedule.daemon_start"),
       catchUpMaxMin: num(schedule, "catch_up_max_min", 180, "schedule"),
     },
     capture: {

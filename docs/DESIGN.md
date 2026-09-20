@@ -8,14 +8,17 @@
 > turned out to be a **no-op** on the S340 (§10.3); the app now moves with `preview()` (P2P 6035),
 > waits until the view stops changing, proves motion against a pre-move frame, and returns to the
 > camera's *default* preset — the one the camera drifts back to by itself anyway (§10.4).
+> v0.6 (2026-09-20): the schedule anchors to **sunrise or sunset** (`schedule.event` + `offset_min`);
+> the owner switched to 10 min before sunset.
 
 ## 1. Goal
 
-Every day, at sunrise (± a configured offset) for a configured location, make sure a Eufy SoloCam S340
-is sitting on a chosen preset, capture a wide-lens still, store it locally forever, and post it to a
-Telegram chat. The frame is identical all year; the sun rises at a different point of it each day
-(≈ 66° of azimuth swing over the year at 44°N, comfortably inside the wide lens if the preset faces
-roughly ESE). Runs unattended on an always-on Mac with no user logged in.
+Every day, at sunrise **or sunset** (`schedule.event`, ± a configured offset) for a configured location,
+make sure a Eufy SoloCam S340 is sitting on a chosen preset, capture a wide-lens still, store it locally
+forever, and post it to a Telegram chat. The frame is identical all year; the sun rises/sets at a
+different point of it each day (≈ 66° of azimuth swing over the year at 44°N, comfortably inside the
+wide lens if the preset faces roughly ESE for sunrise or WNW for sunset). Runs unattended on an
+always-on Mac with no user logged in.
 
 ### Decisions locked in during requirements review
 
@@ -25,7 +28,7 @@ roughly ESE). Runs unattended on an always-on Mac with no user logged in.
 | Position | **Fixed preset** — camera slot 3, "preset 4" in the Eufy app (`shoot_preset`), aimed once by the owner in the Eufy app. The tool never calls `rotate()`; it only moves to the preset (`movePreset`, §10.3) and **verifies** it got there (§3 Presetter). |
 | Preset choice | Shot from **#4**. Home is the camera's **default preset** — the S340 returns there by itself about a minute after every live session (§10.4), so that is the owner's security view whether we like it or not; the owner picks *which* preset is default in the Eufy app. |
 | Zoom | Wide lens only, 1×. |
-| Time | Sunrise + configurable offset (minutes), from lat/long, via `suncalc`. |
+| Time | `schedule.event` (**sunrise** or **sunset**) + configurable offset (minutes, negative = before), from lat/long, via `suncalc`. Currently sunset −10 min. |
 | After the shot | `movePreset(home)` — back to the default preset immediately rather than a minute later (`home_preset` may pin a different slot, but the camera will not stay there). |
 | Storage | Local folder on the Mac, keep everything, JSON sidecar per photo. |
 | Delivery | Post each day's photo to a **Telegram bot** chat; failures also go there, so silence is meaningful. |
@@ -56,12 +59,12 @@ Moving the camera, video, motion events, web UI, multiple cameras, cloud storage
 ```mermaid
 flowchart LR
     subgraph mac["Always-on Mac (logged out)"]
-        ld["launchd LaunchDaemon\nStartCalendarInterval 04:00\n+ RunAtLoad"] -->|"start"| run["eufy-snap run\n(Node 24, one-shot)"]
+        ld["launchd LaunchDaemon\nStartCalendarInterval daemon_start\n+ RunAtLoad"] -->|"start"| run["eufy-snap run\n(Node 24, one-shot)"]
         cfg["$EUFY_SNAP_HOME/config.yaml"] --> run
         env["$EUFY_SNAP_HOME/env (600)\nEUFY_*, TELEGRAM_*"] --> run
         sess["$EUFY_SNAP_HOME/session.json (600)"] <--> run
         ref["$EUFY_SNAP_HOME/reference.jpg\n(frame at the preset)"] --> run
-        run --> sun["suncalc\nsunrise time"]
+        run --> sun["suncalc\nsunrise / sunset time"]
         run --> ff["ffmpeg"]
         run --> store["$EUFY_SNAP_HOME/photos/\nYYYY/YYYY-MM-DD.jpg + .json"]
         run --> tg["Telegram Bot API\nsendPhoto / sendMessage"]
@@ -75,14 +78,14 @@ flowchart LR
 
 | Component | Responsibility |
 |---|---|
-| **CLI `eufy-snap`** | `login` (interactive 2FA/captcha), `devices`, `presets` (list / move / set-default), `reference` (move to preset, snapshot, store as `reference.jpg`), `plan [date]` (print sunrise and fire time), `snap` (do the full sequence now), `run` (daemon entrypoint: wait for today's fire time then snap), `install` (write + load LaunchDaemon), `doctor`. Spike-only commands (`rotate`, `sweep`, `watch`, `sequence`) stay behind a `dev` group. |
-| **Sun model** | `suncalc`: sunrise for `location` on a date. `plan(date) → {sunrise, fireAt}`. |
+| **CLI `eufy-snap`** | `login` (interactive 2FA/captcha), `devices`, `presets` (list / move / set-default), `reference` (move to preset, snapshot, store as `reference.jpg`), `plan [date]` (print the sun event and fire time), `snap` (do the full sequence now), `run` (daemon entrypoint: wait for today's fire time then snap), `install` (write + load LaunchDaemon), `doctor`. Spike-only commands (`rotate`, `sweep`, `watch`, `sequence`) stay behind a `dev` group. |
+| **Sun model** | `suncalc`: `schedule.event` (sunrise or sunset) for `location` on a date. `plan(date) → {event, eventAt, fireAt = eventAt + offset_min}`. |
 | **Presetter** | `list()` → home = `home_preset` or the camera's default slot (warn if they differ, §10.4). Pre-move `snapshotLive()` → `movePreset(shoot_preset)` (P2P 6035 — see §10.3; **never** the SDK's `goto`) → *settle until still* (poll a frame every 2 s; done after two consecutive unchanged frames, ≥ 5 s, ≤ `settle_ms`) → `snapshotLive()` → `frameShift(reference, frame)` and `frameShift(pre-move, frame)`. On-preset if `|shift| < max_shift` (MAD > `max_mad` only downgrades to "uncertain"); *moved* if the frame is not the same view as the pre-move one. If off-reference, or nothing moved and we can't prove we were already on preset: move again with settle × 2 and re-shoot (once). Still off → keep the frame, flag `off_preset`, alert. Finally `movePreset(home)` → settle until still; when home is the camera default, `returned_home` is true only if the final frame matches the pre-move one (best effort; failure is logged, not fatal). `EUFY_SNAP_DEBUG_FRAMES=<dir>` dumps every frame looked at. |
 | **Capturer** | `snapshotLive()` with retries; re-shoot if `width < min_width` (stream still low-res). |
 | **Frame compare** | `src/frame-shift.ts`: both frames to 320×180 grey, brute-force horizontal MAD search. Good enough for "same view / moved / how much"; not general registration. |
-| **Store** | `photos/YYYY/YYYY-MM-DD.jpg` + sidecar `.json` (sunrise UTC/local, fireAt, actual shot time, width×height, shift vs reference, retries, `off_preset`, camera FW, SDK version, duration). |
-| **Telegram** | On success: `sendPhoto` with caption `2026-09-16 · sunrise 06:31 · shot 06:36`. On `off_preset`: same photo, caption prefixed ⚠️. On failure: `sendMessage` with the error class and a hint (e.g. "run `eufy-snap login`"). |
-| **Scheduler** | LaunchDaemon: `StartCalendarInterval` pre-dawn (default 04:00 local) plus `RunAtLoad`. `run` computes today's `fireAt`; if in the future, sleeps until then (wall clock, not a monotonic timer, to survive system sleep); if already passed and today's photo is missing → catch-up snap; otherwise exit. Lock file prevents overlap. |
+| **Store** | `photos/YYYY/YYYY-MM-DD.jpg` + sidecar `.json` (event + eventAt, fireAt, actual shot time, width×height, shift vs reference, retries, `off_preset`, camera FW, SDK version, duration). |
+| **Telegram** | On success: `sendPhoto` with caption `Sunset 2026-09-20 · sunset 18:40 · shot 18:30 · 2304×1296`. On `off_preset`: same photo, caption prefixed ⚠️. On failure: `sendMessage` with the error class and a hint (e.g. "run `eufy-snap login`"). |
+| **Scheduler** | LaunchDaemon: `StartCalendarInterval` at `daemon_start` (default 04:00 local for sunrise, 12:00 for sunset) plus `RunAtLoad`. `run` computes today's `fireAt`; if in the future, sleeps until then (wall clock, not a monotonic timer, to survive system sleep); if already passed and today's photo is missing → catch-up snap; otherwise exit. Lock file prevents overlap. |
 
 ## 4. Daily sequence
 
@@ -94,7 +97,7 @@ sequenceDiagram
     participant K as S340 (P2P relay)
     participant T as Telegram
 
-    L->>R: 04:00 (or on load)
+    L->>R: daemon_start (or on load)
     R->>R: plan(today) → fireAt
     R->>R: sleep until fireAt (wall-clock)
     R->>C: login() from session store
@@ -146,13 +149,14 @@ location:
 
 camera:
   serial: T8170TXXXXXXXXXX
-  shoot_preset: 3               # camera slot aimed at the sunrise (app "preset 4"; the app counts from 1, the camera from 0)
+  shoot_preset: 3               # camera slot aimed at the sun (app "preset 4"; the app counts from 1, the camera from 0)
   # home_preset: 0              # optional; default = the camera's default preset, which is where it rests anyway (§10.4)
   settle_ms: 20000              # MAX wait for a pan to finish; polling stops as soon as the view is still (a long pan takes ~16 s)
 
 schedule:
-  sunrise_offset_min: 5         # negative = before sunrise
-  daemon_start: "04:00"         # pre-dawn launchd trigger; must precede earliest sunrise+offset
+  event: sunset                 # sunrise | sunset
+  offset_min: -10               # minutes relative to the event; negative = before
+  daemon_start: "12:00"         # launchd trigger; must precede the earliest fire time of the year (04:00 for sunrise, 12:00 for sunset)
   catch_up_max_min: 180         # daemon started late? still shoot if within this many minutes of fire time
 
 capture:
@@ -236,7 +240,7 @@ on the Mac; the Telegram chat should be private. Pin the SDK to an exact version
 | Phase | Scope | Exit criterion |
 |---|---|---|
 | **0 — Spike** ✅ | `login`, `devices`, `presets`, `rotate`, `snapshotLive`, `sequence`, `sweep` against the real S340. | Done 2026-09-16; findings in §10.1. |
-| **1 — MVP** ✅ built | Sun model, `plan`, `reference`, Presetter (move + verify), `snap`, `run` with wait/catch-up, lock file, local store + sidecars, Telegram photo/alerts, LaunchDaemon `install`. | Code complete 2026-09-17; the first build never moved the camera (§10.3), fixed the same day. **Still to prove:** runs unattended for 3 consecutive sunrises. |
+| **1 — MVP** ✅ built | Sun model, `plan`, `reference`, Presetter (move + verify), `snap`, `run` with wait/catch-up, lock file, local store + sidecars, Telegram photo/alerts, LaunchDaemon `install`. | Code complete 2026-09-17; the first build never moved the camera (§10.3), fixed the same day. **Still to prove:** runs unattended for 3 consecutive days. |
 | **2 — Hardening** | Telegram bot actually configured, forced-failure drills, `doctor`, log rotation, retention policy. | A forced failure (wrong password) produces a Telegram alert, no login loop. |
 | **3 — Later** | Time-lapse assembly script (`ffmpeg` glob → mp4), weather skip, multiple cameras, tilt/pan re-aim if the SDK ever gains a stop command. | — |
 

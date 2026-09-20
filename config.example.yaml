@@ -14,8 +14,9 @@ camera:
   settle_ms: 20000              # MAX wait for a pan to finish; the run proceeds as soon as the view stops changing (a long pan takes ~16 s)
 
 schedule:
-  sunrise_offset_min: 5         # shoot this many minutes after sunrise (negative = before)
-  daemon_start: "04:00"         # pre-dawn launchd trigger; must be before the earliest sunrise+offset of the year
+  event: sunrise                # sunrise | sunset — which sun event the daily shot is anchored to
+  offset_min: 5                 # shoot this many minutes after the event (negative = before, e.g. -10 for 10 min before sunset)
+  daemon_start: "04:00"         # launchd trigger; must be before the earliest shoot time of the year (default 04:00 for sunrise, 12:00 for sunset)
   catch_up_max_min: 180         # if the daemon starts late, still shoot if within this many minutes of fire time
 
 capture:

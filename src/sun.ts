@@ -1,10 +1,21 @@
 import * as SunCalc from "suncalc";
 
+export type SunEvent = "sunrise" | "sunset";
+export const SUN_EVENTS: readonly SunEvent[] = ["sunrise", "sunset"];
+
+export interface SunSchedule {
+  event: SunEvent;
+  /** Minutes relative to the event; negative = before. */
+  offsetMin: number;
+}
+
 export interface SunPlan {
   /** Civil date in the configured timezone, YYYY-MM-DD. */
   date: string;
-  sunrise: Date;
-  /** sunrise + offset — when the daily run should shoot. */
+  event: SunEvent;
+  /** When the sun event itself happens. */
+  eventAt: Date;
+  /** eventAt + offset — when the daily run should shoot. */
   fireAt: Date;
 }
 
@@ -42,21 +53,22 @@ export function localNoon(date: string, tz: string): Date {
   return new Date(guess.getTime() - tzOffsetMinutes(first, tz) * 60_000);
 }
 
-export function planFor(
-  date: string,
-  loc: { lat: number; lon: number; timezone: string },
-  sunriseOffsetMin: number,
-): SunPlan {
+export function planFor(date: string, loc: { lat: number; lon: number; timezone: string }, schedule: SunSchedule): SunPlan {
   const noon = localNoon(date, loc.timezone);
   const times = SunCalc.getTimes(noon, loc.lat, loc.lon);
-  const sunrise = times.sunrise;
-  if (!(sunrise instanceof Date) || Number.isNaN(sunrise.getTime())) {
-    throw new Error(`no sunrise on ${date} at ${loc.lat},${loc.lon} (polar day/night?)`);
+  const eventAt = times[schedule.event];
+  if (!(eventAt instanceof Date) || Number.isNaN(eventAt.getTime())) {
+    throw new Error(`no ${schedule.event} on ${date} at ${loc.lat},${loc.lon} (polar day/night?)`);
   }
-  return { date, sunrise, fireAt: new Date(sunrise.getTime() + sunriseOffsetMin * 60_000) };
+  return { date, event: schedule.event, eventAt, fireAt: new Date(eventAt.getTime() + schedule.offsetMin * 60_000) };
 }
 
 /** Plan for today in the configured timezone. */
-export function planToday(loc: { lat: number; lon: number; timezone: string }, sunriseOffsetMin: number, now = new Date()): SunPlan {
-  return planFor(localDate(now, loc.timezone), loc, sunriseOffsetMin);
+export function planToday(loc: { lat: number; lon: number; timezone: string }, schedule: SunSchedule, now = new Date()): SunPlan {
+  return planFor(localDate(now, loc.timezone), loc, schedule);
+}
+
+/** "sunset −10 min" / "sunrise +5 min" — how the schedule reads in logs and headers. */
+export function describeSchedule(s: SunSchedule): string {
+  return `${s.event} ${s.offsetMin >= 0 ? "+" : "−"}${Math.abs(s.offsetMin)} min`;
 }

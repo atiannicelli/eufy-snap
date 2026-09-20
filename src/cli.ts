@@ -19,7 +19,7 @@ loadDotEnv();
 
 const program = new Command()
   .name("eufy-snap")
-  .description("Daily sunrise snapshot from a fixed preset on a Eufy PTZ camera")
+  .description("Daily sunrise/sunset snapshot from a fixed preset on a Eufy PTZ camera")
   .version("0.0.1")
   .option("-c, --config <file>", "config file (default $EUFY_SNAP_CONFIG or ~/.eufy-snap/config.yaml)");
 
@@ -68,7 +68,7 @@ program
 
 program
   .command("plan [date]")
-  .description("show sunrise and shoot time for a date (default today)")
+  .description("show the sun event (schedule.event) and shoot time for a date (default today)")
   .option("--days <n>", "how many consecutive days to list", "1")
   .action((date: string | undefined, opts) => planCommand(date, withGlobals(opts)));
 
