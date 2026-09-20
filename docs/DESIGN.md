@@ -24,7 +24,7 @@ always-on Mac with no user logged in.
 
 | Topic | Decision |
 |---|---|
-| Camera | **SoloCam S340 (T8170)** "Bailey Island", `T8170T1025073FBB`, standalone Wi‑Fi (no HomeBase), battery + solar. Reached over Eufy's P2P relay (the Mac is not on its LAN). |
+| Camera | **SoloCam S340 (T8170)**, the owner's shore camera on the Maine coast (≈ 44°N), standalone Wi‑Fi (no HomeBase), battery + solar. Reached over Eufy's P2P relay (the Mac is not on its LAN). |
 | Position | **Fixed preset** — camera slot 3, "preset 4" in the Eufy app (`shoot_preset`), aimed once by the owner in the Eufy app. The tool never calls `rotate()`; it only moves to the preset (`movePreset`, §10.3) and **verifies** it got there (§3 Presetter). |
 | Preset choice | Shot from **#4**. Home is the camera's **default preset** — the S340 returns there by itself about a minute after every live session (§10.4), so that is the owner's security view whether we like it or not; the owner picks *which* preset is default in the Eufy app. |
 | Zoom | Wide lens only, 1×. |
@@ -143,12 +143,12 @@ The authoritative, commented template is [`config.example.yaml`](../config.examp
 ```yaml
 # $EUFY_SNAP_HOME/config.yaml — no secrets in this file
 location:
-  lat: 43.73
-  lon: -69.99
+  lat: 43.6231                  # example: Portland Head Light, ME
+  lon: -70.2078
   timezone: America/New_York
 
 camera:
-  serial: T8170T1025073FBB
+  serial: T8170TXXXXXXXXXX      # from `eufy-snap devices`
   shoot_preset: 3               # camera slot aimed at the sun (app "preset 4"; the app counts from 1, the camera from 0)
   # home_preset: 0              # optional; default = the camera's default preset, which is where it rests anyway (§10.4)
   settle_ms: 20000              # MAX wait for a pan to finish; polling stops as soon as the view is still (a long pan takes ~16 s)
@@ -244,7 +244,7 @@ on the Mac; the Telegram chat should be private. Pin the SDK to an exact version
 | **2 — Hardening** | Telegram bot actually configured, forced-failure drills, `doctor`, log rotation, retention policy. | A forced failure (wrong password) produces a Telegram alert, no login loop. |
 | **3 — Later** | Time-lapse assembly script (`ffmpeg` glob → mp4), weather skip, multiple cameras, tilt/pan re-aim if the SDK ever gains a stop command. | — |
 
-### 10.1 Phase 0 findings (S340 `T8170T1025073FBB`, firmware as of 2026-09-16)
+### 10.1 Phase 0 findings (the owner's S340, firmware as of 2026-09-16)
 
 - **Login / session**: 2FA once, then `session.json` restores with no network auth. Two S340s on the
   account; both report `PTZ BATTERY CAMERA RTSP ZOOM PRESETS` (the `RTSP` flag is unexpected for a
@@ -339,7 +339,7 @@ on the Mac; the Telegram chat should be private. Pin the SDK to an exact version
 
 ### 10.5 Resolution depends on the path to the camera (2026-09-20)
 
-- The server (Andover, off the camera's LAN, P2P via Eufy's relay) got 1920×1080 from the same
+- The server (at the owner's other house, off the camera's LAN, P2P via Eufy's relay) got 1920×1080 from the same
   preset the LAN Mac got 2304×1296 from. The camera's live-view quality (param 1020) is tier 0
   **Auto** — "the camera picks a tier from the link" — while recording quality is pinned at 3 (Max).
 - The SDK reads the setting but ships no setter (its 2730 write is unverified), so the fix is the
@@ -351,7 +351,7 @@ on the Mac; the Telegram chat should be private. Pin the SDK to an exact version
 
 1. **Aiming.** The presets survived the `goto` bug intact (§10.3); `reference.jpg` (2026-09-17 17:0x,
    2880×1616) was shot on slot 3 after a full settle and matches later slot-3 frames at shift 0.0 %.
-   Owner: eyeball it once for the sunrise framing (≈ 57°–123° true over the year at Bailey Island),
+   Owner: eyeball it once for the sunrise framing (≈ 57°–123° true over the year at 44°N),
    and decide which preset should be the camera **default** — that is where it rests (§10.4).
 2. **Verification blind spot.** `frameShift` is horizontal-only: a pure tilt or a lighting change both
    show as MAD ≈ 30 at shift ≈ 0. Fine for "did it pan"; not a general position check. Consider a
