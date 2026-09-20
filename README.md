@@ -110,4 +110,6 @@ Telegram delivery failed
 
 Runs log one line per event to stdout and `~/.eufy-snap/logs/eufy-snap.log`. `EUFY_LOG_LEVEL=debug`
 adds per-frame detail and the SDK's own P2P/cloud diagnostics. The `EHOSTUNREACH` lines the SDK prints
-when the Mac is not on the camera's LAN are harmless — the relay path is used.
+when the Mac is not on the camera's LAN are harmless — the relay path is used. Over the relay the
+camera streams **1080p** if its Streaming Quality is `Auto` (`devices` shows the current value); set it
+to **Max** in the Eufy app to get full resolution off-LAN.
