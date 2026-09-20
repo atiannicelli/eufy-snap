@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
-import { localDate, localTime } from "./sun.ts";
+import { localDate, localTime, type SunEvent } from "./sun.ts";
 
 /** Everything worth knowing about one photo, written next to it as JSON. */
 export interface Sidecar {
   date: string;
   reason: "scheduled" | "catch-up" | "manual" | "reference";
-  sunrise?: string;
+  /** The sun event the schedule is anchored to and when it happened (ISO). */
+  event?: SunEvent;
+  eventAt?: string;
   fireAt?: string;
   shotAt: string;
   timezone: string;
