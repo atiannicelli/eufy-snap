@@ -54,6 +54,7 @@ node dist/cli.js devices                            # confirm the camera and not
 node dist/cli.js presets <sn>                       # confirm shoot_preset is stored; note which slot is the default (= home)
 node dist/cli.js reference                          # shoot from the preset → ~/.eufy-snap/reference.jpg — look at it!
 node dist/cli.js plan --days 7                      # sanity-check sunrise/sunset and shoot times
+node dist/cli.js telegram-test --photo              # prove bot token / chat id by posting reference.jpg (no camera)
 node dist/cli.js snap                               # full dry run right now (saves a photo, returns home)
 ```
 
@@ -110,4 +111,6 @@ Telegram delivery failed
 
 Runs log one line per event to stdout and `~/.eufy-snap/logs/eufy-snap.log`. `EUFY_LOG_LEVEL=debug`
 adds per-frame detail and the SDK's own P2P/cloud diagnostics. The `EHOSTUNREACH` lines the SDK prints
-when the Mac is not on the camera's LAN are harmless — the relay path is used.
+when the Mac is not on the camera's LAN are harmless — the relay path is used. Over the relay the
+camera streams **1080p** if its Streaming Quality is `Auto` (`devices` shows the current value); set it
+to **Max** in the Eufy app to get full resolution off-LAN.

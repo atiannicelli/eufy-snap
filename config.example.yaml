@@ -2,12 +2,12 @@
 # No secrets here — credentials live in the env file (see .env.example).
 
 location:
-  lat: 43.6231                    # Portland Head Light, ME (example)
+  lat: 43.6231                  # decimal degrees; this is a lighthouse (Portland Head Light, ME) — put your camera's location here
   lon: -70.2078
   timezone: America/New_York    # IANA name; drives DST and the "which day is it" question
 
 camera:
-  serial: T8170TXXXXXXXXXX
+  serial: T8170TXXXXXXXXXX      # from `eufy-snap devices`
   shoot_preset: 3               # camera slot aimed at the sunrise (app "preset 4" — the app counts from 1, the camera from 0)
   # home_preset: 0              # optional: where to park after the shot. Default = the camera's default preset, which is
                                 # where it returns by itself ~1 min after every session anyway — pick that in the Eufy app
