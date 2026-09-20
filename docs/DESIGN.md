@@ -337,6 +337,16 @@ on the Mac; the Telegram chat should be private. Pin the SDK to an exact version
   → shot 2304×1296 on attempt 1, verify shift 0.0 % / MAD 8 vs reference, motion +21.9 % → return 0
   (settled 18.2 s) → final frame vs pre-move shift +0.9 % / MAD 15.8 → `returnedHome: true`; 44 s.
 
+### 10.5 Resolution depends on the path to the camera (2026-09-20)
+
+- The server (Andover, off the camera's LAN, P2P via Eufy's relay) got 1920×1080 from the same
+  preset the LAN Mac got 2304×1296 from. The camera's live-view quality (param 1020) is tier 0
+  **Auto** — "the camera picks a tier from the link" — while recording quality is pinned at 3 (Max).
+- The SDK reads the setting but ships no setter (its 2730 write is unverified), so the fix is the
+  Eufy app: Streaming Quality → Max. `devices` prints the current tier with that hint. The mid-pan
+  shot from the server (§3 retry path, `settle_ms: 6000` inherited from the Phase 1 example) is what
+  prompted PR #4's short-settle warning and finish-pan-before-retry.
+
 ## 11. Remaining open items
 
 1. **Aiming.** The presets survived the `goto` bug intact (§10.3); `reference.jpg` (2026-09-17 17:0x,
