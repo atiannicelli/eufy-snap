@@ -4,6 +4,9 @@ import YAML from "yaml";
 import { stateDir } from "./config.ts";
 import { SUN_EVENTS, type SunEvent } from "./sun.ts";
 
+/** A full pan between presets takes up to ~18 s on the S340; a shorter settle cap means mid-pan shots. */
+const MIN_SANE_SETTLE_MS = 15_000;
+
 /** Fully resolved, validated application configuration (see config.example.yaml). */
 export interface AppConfig {
   location: { lat: number; lon: number; timezone: string };
@@ -162,6 +165,12 @@ export function loadConfig(explicit?: string): AppConfig {
     },
   };
   if (Math.abs(cfg.location.lat) > 90 || Math.abs(cfg.location.lon) > 180) throw new Error("config: lat/lon out of range");
+  if (cfg.camera.settleMs < MIN_SANE_SETTLE_MS) {
+    console.warn(
+      `config: settle_ms ${cfg.camera.settleMs} is shorter than a long pan (~18 s) — shots may be taken mid-pan; ` +
+        `set settle_ms: 20000 or remove the line (it is a maximum, the run proceeds as soon as the view is still)`,
+    );
+  }
   if (cfg.camera.homePreset !== undefined && cfg.camera.shootPreset === cfg.camera.homePreset) {
     console.warn("config: shoot_preset equals home_preset — the camera will not move for the shot");
   }
