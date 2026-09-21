@@ -72,7 +72,7 @@ export async function runCommand(opts: RunOpts): Promise<void> {
     } else {
       await waitUntil(plan.fireAt);
       if (todayHasPhoto(cfg.store.dir, new Date(), tz)) {
-        info("a photo appeared while waiting (manual snap?) — nothing to do");
+        info("a scheduled photo appeared while waiting (another run?) — nothing to do");
         return;
       }
     }
