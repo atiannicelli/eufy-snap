@@ -39,17 +39,21 @@ export function scheduledPhotoPath(dir: string, date: string): string {
 }
 
 /**
- * Save `photos/YYYY/YYYY-MM-DD.jpg` + `.json`. If that name is taken (a manual `snap` after the
- * scheduled run, say) fall back to `YYYY-MM-DD_HHMM.jpg` so nothing is ever overwritten.
+ * Save `photos/YYYY/YYYY-MM-DD.jpg` + `.json`. Only the scheduled run (and its catch-up) may claim
+ * that name — `run` treats its existence as "today is done". A manual `snap` always saves as
+ * `YYYY-MM-DD_HHMM.jpg`, so testing during the day never suppresses the evening shot. Nothing is
+ * ever overwritten.
  */
 export function savePhoto(dir: string, jpeg: Buffer, meta: Sidecar, tz: string): SavedPhoto {
   const year = meta.date.slice(0, 4);
   fs.mkdirSync(path.join(dir, year), { recursive: true });
+  const canonical = meta.reason === "scheduled" || meta.reason === "catch-up";
   let base = meta.date;
-  if (fs.existsSync(path.join(dir, year, `${base}.jpg`))) {
-    base = `${meta.date}_${localTime(new Date(meta.shotAt), tz).replace(":", "")}`;
+  if (!canonical || fs.existsSync(path.join(dir, year, `${base}.jpg`))) {
+    const stamped = `${meta.date}_${localTime(new Date(meta.shotAt), tz).replace(":", "")}`;
+    base = stamped;
     let n = 1;
-    while (fs.existsSync(path.join(dir, year, `${base}.jpg`))) base = `${meta.date}_${localTime(new Date(meta.shotAt), tz).replace(":", "")}-${n++}`;
+    while (fs.existsSync(path.join(dir, year, `${base}.jpg`))) base = `${stamped}-${n++}`;
   }
   const file = path.join(dir, year, `${base}.jpg`);
   const sidecar = path.join(dir, year, `${base}.json`);

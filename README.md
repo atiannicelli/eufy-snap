@@ -21,7 +21,8 @@ sunset (`schedule.event`) for your latitude/longitude, sleeps until that time pl
 4. captures a live frame, re-shooting until it is at least `min_width` wide
 5. compares it with `reference.jpg` **and** with the pre-move frame; if the view is off, or the camera
    never moved, it moves again and re-shoots once
-6. saves `photos/YYYY/YYYY-MM-DD.jpg` plus a `.json` sidecar (timings, verification, motion, warnings)
+6. saves `photos/YYYY/YYYY-MM-DD.jpg` plus a `.json` sidecar (timings, verification, motion, warnings);
+   a manual `snap` saves as `YYYY-MM-DD_HHMM.jpg` instead so it never stands in for the scheduled shot
 7. moves home, waits until still, and checks the frame matches the pre-move one
 8. posts the photo to Telegram (if configured), or an alert if anything failed
 
@@ -177,7 +178,7 @@ node dist/cli.js run --at 17:45 --no-telegram     # rehearse the wait/shoot path
 | `presets <serial>` | Preset slots with app numbering and the default; `--goto`, `--save`, `--set-default`, `--image <id>` (download the slot's thumbnail). |
 | `reference` | Capture the verification frame from `shoot_preset`; keeps the previous as `reference.prev.jpg`. |
 | `plan [date] [--days n]` | Sun event and shoot time per day; flags days that would fire before `daemon_start`. |
-| `snap [--no-telegram]` | Do the whole daily sequence now. |
+| `snap [--no-telegram]` | Do the whole daily sequence now. Saves as `YYYY-MM-DD_HHMM.jpg`; never counts as the day's scheduled photo. |
 | `run [--at HH:MM] [--no-telegram]` | Daemon entry point: wait / catch up / skip, then snap. |
 | `telegram-test [--photo]` | Send a test message (or `reference.jpg`) to the configured chat without touching the camera. |
 | `install [--print] [--node path]` | Render the LaunchDaemon plist and print the activation steps. |
