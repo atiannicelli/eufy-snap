@@ -7,6 +7,7 @@ import { createClient, login, sleep } from "./client.ts";
 import { describePreset, getDevice, isDefaultPreset, isStoredPreset, movePreset, requireCamera, requirePtz, type CameraApi } from "./commands/shared.ts";
 import { describeShift, frameShift, type ShiftResult } from "./frame-shift.ts";
 import { debug, errorMessage, info, warn } from "./log.ts";
+import { pauseMotionDetection, repairMotionDetection, type MotionPause } from "./motion-pause.ts";
 import { savePhoto, type SavedPhoto, type Sidecar } from "./store.ts";
 import type { SunPlan } from "./sun.ts";
 
@@ -46,6 +47,8 @@ export interface DailyOptions {
   plan?: SunPlan;
   /** Write `reference.jpg` instead of a dated photo, and skip verification. */
   asReference?: boolean;
+  /** How many earlier whole-session attempts failed before this one (recorded in the sidecar). */
+  priorFailures?: number;
 }
 
 export interface DailyOutcome {
@@ -85,15 +88,24 @@ function dumpFrame(name: string, jpeg: Buffer): void {
   }
 }
 
+/**
+ * Errors worth trying again later: the camera or the Eufy relay was unreachable, not a bug or a
+ * login problem. The SDK's own wording is "P2P session for <sn> did not connect".
+ */
+export function isTransientError(e: unknown): boolean {
+  return /did not connect|timeout|timed out|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|not connected|fetch failed|socket hang up/i.test(
+    errorMessage(e),
+  );
+}
+
 /** The camera keeps the previous P2P session for ~15 s; a fresh connect inside that window times out. */
 async function withP2pRetry<T>(what: string, fn: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
     } catch (e) {
-      const msg = errorMessage(e);
-      if (attempt >= P2P_ATTEMPTS || !/timeout|timed out|ECONNRESET|not connected/i.test(msg)) throw e;
-      warn(`${what}: ${msg} — retrying in ${P2P_RETRY_MS / 1000}s`, { attempt });
+      if (attempt >= P2P_ATTEMPTS || !isTransientError(e)) throw e;
+      warn(`${what}: ${errorMessage(e)} — retrying in ${P2P_RETRY_MS / 1000}s`, { attempt });
       await sleep(P2P_RETRY_MS);
     }
   }
@@ -238,7 +250,21 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
   let homePreset: number | undefined = cfg.camera.homePreset;
   let cameraDefault: number | undefined;
   let shot: Shot;
+  let motionPause: MotionPause | undefined;
+  // If we die between pause and restore, the next run (or a SIGTERM) puts the switch back.
+  const onSignal = (sig: NodeJS.Signals): void => {
+    warn(`${sig} — restoring motion detection and disconnecting`);
+    void (motionPause?.restore() ?? Promise.resolve())
+      .finally(() => eufy.disconnect().catch(() => undefined))
+      .finally(() => process.exit(sig === "SIGINT" ? 130 : 143));
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
   try {
+    await repairMotionDetection(dev, cfg.paths.motionPaused);
+    if (cfg.camera.pauseMotionDetection) {
+      motionPause = await withP2pRetry("pause motion detection", () => pauseMotionDetection(dev, cfg.paths.motionPaused, warnings));
+    }
     const presets = (await withP2pRetry("preset list", () => preset.list?.() ?? Promise.resolve([]))) ?? [];
     const stored = presets.filter(isStoredPreset).map((p) => p.id);
     cameraDefault = presets.find(isDefaultPreset)?.id;
@@ -262,6 +288,12 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
     }
 
     before = await quickFrame(cam, cfg.capture, "pre-move");
+    if (motionPause?.active) {
+      // A tracking event may still be finishing; a move issued mid-pan lands somewhere unrelated.
+      const rest = await settleUntilStill(cam, cfg, before, settleMs, "settle (pre-move)");
+      if (rest.frame) before = rest.frame;
+      if (rest.ms > SETTLE_MIN_MS + SETTLE_POLL_MS) info(`camera was moving before the run — still after ${(rest.ms / 1000).toFixed(1)} s`);
+    }
     lastFrame = before;
     info(`move to preset ${shootPreset}`);
     await withP2pRetry("move", () => movePreset(ptz, shootPreset));
@@ -351,10 +383,14 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
       warnings.push(`return home failed: ${errorMessage(e)}`);
       warn(warnings.at(-1)!);
     }
+    await motionPause?.restore();
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
     await eufy.disconnect().catch(() => undefined);
   }
 
   const offPreset = verify ? !verify.onPreset : false;
+  if (opts.priorFailures) warnings.push(`camera unreachable on ${opts.priorFailures} earlier attempt(s); shot on attempt ${opts.priorFailures + 1}`);
   const firmware = firmwareOf(dev);
   const sidecar: Sidecar = {
     date: opts.date,

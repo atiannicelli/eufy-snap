@@ -16,8 +16,17 @@ export interface AppConfig {
     /** Where to park after the shot. Unset = the camera's own default preset, which is where it rests anyway. */
     homePreset: number | undefined;
     settleMs: number;
+    /** Switch motion detection off for the duration of the run so tracking cannot yank the camera; restored afterwards. */
+    pauseMotionDetection: boolean;
   };
-  schedule: { event: SunEvent; offsetMin: number; daemonStart: { hour: number; minute: number }; catchUpMaxMin: number };
+  schedule: {
+    event: SunEvent;
+    offsetMin: number;
+    daemonStart: { hour: number; minute: number };
+    catchUpMaxMin: number;
+    /** Keep re-trying a run that could not reach the camera until fireAt + this many minutes. */
+    retryWindowMin: number;
+  };
   capture: {
     retries: number;
     minWidth: number;
@@ -29,7 +38,7 @@ export interface AppConfig {
   telegram: { chatIdEnv: string; botTokenEnv: string };
   daemon: { label: string; user: string | undefined };
   /** Derived paths. */
-  paths: { config: string; reference: string; lock: string; logs: string };
+  paths: { config: string; reference: string; lock: string; logs: string; motionPaused: string };
 }
 
 export function configFile(explicit?: string): string {
@@ -52,6 +61,13 @@ function num(sec: Raw, key: string, fallback: number | undefined, where: string)
     return fallback;
   }
   if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`config: "${where}.${key}" must be a number`);
+  return v;
+}
+
+function bool(sec: Raw, key: string, fallback: boolean, where: string): boolean {
+  const v = sec[key];
+  if (v === undefined || v === null) return fallback;
+  if (typeof v !== "boolean") throw new Error(`config: "${where}.${key}" must be true or false`);
   return v;
 }
 
@@ -130,6 +146,7 @@ export function loadConfig(explicit?: string): AppConfig {
       shootPreset: num(camera, "shoot_preset", undefined, "camera"),
       homePreset: optNum(camera, "home_preset", "camera"),
       settleMs: num(camera, "settle_ms", 20_000, "camera"),
+      pauseMotionDetection: bool(camera, "pause_motion_detection", true, "camera"),
     },
     schedule: {
       event: event as SunEvent,
@@ -137,6 +154,7 @@ export function loadConfig(explicit?: string): AppConfig {
       // The launchd trigger must precede the earliest fire time of the year: pre-dawn for sunrise, noon for sunset.
       daemonStart: parseHHMM(str(schedule, "daemon_start", event === "sunset" ? "12:00" : "04:00", "schedule"), "schedule.daemon_start"),
       catchUpMaxMin: num(schedule, "catch_up_max_min", 180, "schedule"),
+      retryWindowMin: num(schedule, "retry_window_min", 30, "schedule"),
     },
     capture: {
       retries: num(capture, "retries", 3, "capture"),
@@ -162,6 +180,7 @@ export function loadConfig(explicit?: string): AppConfig {
       reference: path.join(dir, "reference.jpg"),
       lock: path.join(dir, "run.lock"),
       logs: path.join(dir, "logs"),
+      motionPaused: path.join(dir, "motion-paused.json"),
     },
   };
   if (Math.abs(cfg.location.lat) > 90 || Math.abs(cfg.location.lon) > 180) throw new Error("config: lat/lon out of range");

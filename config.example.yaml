@@ -12,12 +12,14 @@ camera:
   # home_preset: 0              # optional: where to park after the shot. Default = the camera's default preset, which is
                                 # where it returns by itself ~1 min after every session anyway — pick that in the Eufy app
   settle_ms: 20000              # MAX wait for a pan to finish; the run proceeds as soon as the view stops changing (a long pan takes ~16 s)
+  pause_motion_detection: true  # switch detection off while the run holds the camera (tracking would yank it off the preset); restored afterwards
 
 schedule:
   event: sunrise                # sunrise | sunset — which sun event the daily shot is anchored to
   offset_min: 5                 # shoot this many minutes after the event (negative = before, e.g. -10 for 10 min before sunset)
   daemon_start: "04:00"         # launchd trigger; must be before the earliest shoot time of the year (default 04:00 for sunrise, 12:00 for sunset)
   catch_up_max_min: 180         # if the daemon starts late, still shoot if within this many minutes of fire time
+  retry_window_min: 30          # camera/relay unreachable at fire time? keep retrying every 2 min until this long after it
 
 capture:
   retries: 3                    # snapshot attempts (camera may still be waking)

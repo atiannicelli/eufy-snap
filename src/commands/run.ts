@@ -1,9 +1,9 @@
 import { NeedsHumanError, sleep } from "../client.ts";
-import { CaptureError, runDaily, type DailyOptions } from "../daily.ts";
+import { CaptureError, isTransientError, runDaily, type DailyOptions } from "../daily.ts";
 import { acquireLock, LockHeldError } from "../lock.ts";
 import { error, errorMessage, info, warn } from "../log.ts";
 import { todayHasPhoto } from "../store.ts";
-import { localDateTime, localNoon, planToday, type SunPlan } from "../sun.ts";
+import { localDateTime, localNoon, localTime, planToday, type SunPlan } from "../sun.ts";
 import { alert, bootstrap, deliver, printOutcome, type App, type GlobalOpts } from "./app.ts";
 
 /** Exit codes (README "Exit codes"). 10 needs a human, 20 photo taken but off preset, 30 no photo, 40 photo saved but not delivered. */
@@ -106,27 +106,44 @@ function overrideFireAt(plan: SunPlan, at: string, tz: string): SunPlan {
   return { ...plan, fireAt };
 }
 
+/** Pause between whole-session attempts when the camera could not be reached. */
+const SESSION_RETRY_MS = 2 * 60_000;
+
 async function shoot(app: App, daily: DailyOptions, telegram: boolean): Promise<number> {
   const { cfg } = app;
-  try {
-    const outcome = await runDaily(cfg, daily);
-    printOutcome(cfg, outcome);
-    const delivered = telegram ? await deliver(app, outcome) : true;
-    if (!delivered) return EXIT.deliveryFailed;
-    return outcome.exitCode === 20 ? EXIT.offPreset : EXIT.ok;
-  } catch (e) {
-    if (e instanceof NeedsHumanError) {
-      error(e.message);
-      if (telegram) await alert(app, "needs a human (login)", e);
-      return EXIT.needsHuman;
+  const tz = cfg.location.timezone;
+  // Scheduled runs keep trying until fireAt + retry_window_min: a late frame beats a missing day.
+  // Manual `snap` fails fast — someone is watching.
+  const deadline = daily.reason !== "manual" && daily.plan ? daily.plan.fireAt.getTime() + cfg.schedule.retryWindowMin * 60_000 : 0;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const outcome = await runDaily(cfg, { ...daily, priorFailures: attempt - 1 });
+      printOutcome(cfg, outcome);
+      const delivered = telegram ? await deliver(app, outcome) : true;
+      if (!delivered) return EXIT.deliveryFailed;
+      return outcome.exitCode === 20 ? EXIT.offPreset : EXIT.ok;
+    } catch (e) {
+      if (e instanceof NeedsHumanError) {
+        error(e.message);
+        if (telegram) await alert(app, "needs a human (login)", e);
+        return EXIT.needsHuman;
+      }
+      const transient = e instanceof CaptureError || isTransientError(e);
+      const next = Date.now() + SESSION_RETRY_MS;
+      if (transient && next < deadline) {
+        warn(`attempt ${attempt} failed: ${errorMessage(e)} — retrying at ${localTime(new Date(next), tz)} (until ${localTime(new Date(deadline), tz)})`);
+        await sleep(SESSION_RETRY_MS);
+        continue;
+      }
+      const after = attempt > 1 ? ` after ${attempt} attempts` : "";
+      if (e instanceof CaptureError) {
+        error(`capture failed${after}: ${e.message}`);
+        if (telegram) await alert(app, `capture failed${after}`, e);
+        return EXIT.captureFailed;
+      }
+      error(`run failed${after}: ${errorMessage(e)}`);
+      if (telegram) await alert(app, `failed${after}`, e);
+      return 1;
     }
-    if (e instanceof CaptureError) {
-      error(`capture failed: ${e.message}`);
-      if (telegram) await alert(app, "capture failed", e);
-      return EXIT.captureFailed;
-    }
-    error(`run failed: ${errorMessage(e)}`);
-    if (telegram) await alert(app, "failed", e);
-    return 1;
   }
 }

@@ -14,17 +14,22 @@ Every day at `schedule.daemon_start`, launchd starts `eufy-snap run`. It compute
 sunset (`schedule.event`) for your latitude/longitude, sleeps until that time plus `offset_min`
 (negative = before), then:
 
-1. lists the camera's presets; *home* is `home_preset` if set, otherwise the camera's **default** preset
-2. grabs a quick frame of where the camera is right now
-3. moves to `shoot_preset` — the preset you aimed at the sun in the Eufy app — and polls frames until
+1. switches the camera's **motion detection off** for the duration (`pause_motion_detection`), so a
+   tracking event cannot yank the camera off the preset or refuse the session, and waits for any pan in
+   progress to finish
+2. lists the camera's presets; *home* is `home_preset` if set, otherwise the camera's **default** preset
+3. grabs a quick frame of where the camera is right now
+4. moves to `shoot_preset` — the preset you aimed at the sun in the Eufy app — and polls frames until
    the view stops changing (a full pan takes ~18 s; `settle_ms` caps the wait)
-4. captures a live frame, re-shooting until it is at least `min_width` wide
-5. compares it with `reference.jpg` **and** with the pre-move frame; if the view is off, or the camera
+5. captures a live frame, re-shooting until it is at least `min_width` wide
+6. compares it with `reference.jpg` **and** with the pre-move frame; if the view is off, or the camera
    never moved, it moves again and re-shoots once
-6. saves `photos/YYYY/YYYY-MM-DD.jpg` plus a `.json` sidecar (timings, verification, motion, warnings);
+7. saves `photos/YYYY/YYYY-MM-DD.jpg` plus a `.json` sidecar (timings, verification, motion, warnings);
    a manual `snap` saves as `YYYY-MM-DD_HHMM.jpg` instead so it never stands in for the scheduled shot
-7. moves home, waits until still, and checks the frame matches the pre-move one
-8. posts the photo to Telegram (if configured), or an alert if anything failed
+8. moves home, waits until still, and checks the frame matches the pre-move one
+9. switches motion detection back **on** (also on error, on Ctrl-C/SIGTERM, and — via a marker file —
+   at the start of the next run if a run was ever killed outright)
+10. posts the photo to Telegram (if configured), or an alert if anything failed
 
 ```mermaid
 flowchart LR
@@ -42,7 +47,9 @@ flowchart LR
 ```
 
 `run` is idempotent: it exits if today's photo already exists, waits if it is early, catches up if it
-is late by less than `catch_up_max_min`, and alerts + skips beyond that. A second concurrent `run` is
+is late by less than `catch_up_max_min`, and alerts + skips beyond that. If the camera or Eufy's relay
+cannot be reached at fire time, it retries the whole session every 2 min until `retry_window_min` has
+passed — a slightly late frame beats a missing day — and only then alerts. A second concurrent `run` is
 rejected by a lock file, and `RunAtLoad` makes a reboot or re-install harmless.
 
 ## Requirements
@@ -94,6 +101,7 @@ config.yaml       settings (no secrets)             env (0600)     EUFY_* and TE
 session.json      Eufy session from `login`         openudid       stable device identity
 reference.jpg     the frame at shoot_preset         photos/        YYYY/YYYY-MM-DD.jpg + .json
 logs/             eufy-snap.log, launchd.*.log      run.lock       prevents overlapping runs
+motion-paused.json  exists only while a run has detection switched off
 ```
 
 `config.example.yaml` is the commented template. Abridged:
@@ -109,12 +117,14 @@ camera:
   shoot_preset: 3               # CAMERA slot aimed at the sun — app "preset 4" (the app counts from 1, the camera from 0)
   # home_preset: 0              # optional; default = the camera's default preset, where it rests anyway
   settle_ms: 20000              # MAX wait for a pan; the run proceeds as soon as the view is still
+  pause_motion_detection: true  # detection off while the run holds the camera, back on afterwards
 
 schedule:
   event: sunset                 # sunrise | sunset
   offset_min: -10               # minutes relative to the event; negative = before
   daemon_start: "12:00"         # launchd trigger; must precede the earliest shoot time of the year (04:00 sunrise / 12:00 sunset)
   catch_up_max_min: 180         # daemon started late? still shoot if within this many minutes
+  retry_window_min: 30          # camera unreachable at fire time? retry every 2 min until this long after it
 
 capture:
   retries: 3
@@ -139,6 +149,12 @@ telegram:
 **Preset numbering.** The Eufy app shows presets 1–4; the camera stores them in slots 0–3. Config uses
 **camera slots** — app "preset 4" is `shoot_preset: 3`. `presets <serial>` prints both numberings and
 marks the default.
+
+**Motion detection during the run.** People or pets in view at shoot time make the S340 *track* them —
+the camera pans away from the preset, and a P2P session may be refused while it records. With
+`pause_motion_detection: true` (default) the run flips the app's motion-detection switch off first and
+on again last, and only if the camera reports it as on; `devices` shows the current state. The switch
+is off for about a minute per day. Set it to `false` to never touch the setting.
 
 **Where the camera rests.** The S340 returns to its *default* preset by itself about a minute after
 every live session. So the default preset **is** your security view; `home_preset` is only useful for
@@ -212,9 +228,10 @@ the return) for a post-mortem.
 | Photos are 1920×1080 off-LAN but larger on the LAN | The camera's **Streaming Quality** is `Auto` and drops to 1080p over the relay. Set it to **Max** in the Eufy app (`devices` shows the current value). |
 | `settle: view still changing after N s — proceeding anyway` | `settle_ms` is shorter than the pan. Use the default 20000; it is a cap, not a delay. |
 | `off preset` / exit 20 with a half-turned photo | Usually the above; re-take `reference` after fixing it, since it may be a mid-pan frame too. |
+| `motion detection was left off by an interrupted run` | A run was killed between pause and restore; this run switched it back on. Check the app if it recurs. |
 | `home_preset N is not the camera's default …` | Either drop `home_preset` or make that preset the default in the app; the camera will not stay elsewhere. |
 | `shoot_preset N is not stored on the camera` | Slots are 0-based: app "preset 4" is slot 3. |
-| `P2P connect timeout` | The previous session has not been released yet (allow ~20 s between commands), or another `eufy-snap` is running. |
+| `P2P connect timeout` / `P2P session for … did not connect` | The camera or Eufy's relay was unreachable: previous session not yet released (allow ~20 s between commands), camera offline/asleep, or a network blip. Scheduled runs retry for `retry_window_min`; `snap` fails fast. |
 | exit 10 / "needs login" on Telegram | Eufy rejected the stored session. Run `login` once as the daemon's user. There is deliberately no automatic re-login loop — that is what triggers Eufy captchas. |
 
 ## Camera notes (SoloCam S340)
@@ -230,6 +247,9 @@ Things learned against a real S340 that shape the design:
   **mid-pan** leaves the camera at an unrelated position — never send one until the view is still.
 - **The camera returns to its default preset by itself** about a minute after a live session ends
   (not while a stream is open). Your security view is whatever preset is marked default.
+- **Motion tracking wins over PTZ commands.** A tracking event moves the camera regardless of what the
+  run asked for and can refuse a new P2P session. Param 1011 (`motionDetection`) is the app's master
+  switch and the SDK reads/writes it reliably — so the run pauses detection rather than fighting it.
 - **`rotate()` is press-and-hold, not a step.** Short bursts do nothing, longer ones sweep tens of
   degrees, and the SDK exposes no stop — so fine repositioning is not available, hence presets.
 - **No position feedback.** `ptzNotify` carries no pan/tilt angles, hence image-based verification.
