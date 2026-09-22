@@ -46,6 +46,8 @@ export interface DailyOptions {
   plan?: SunPlan;
   /** Write `reference.jpg` instead of a dated photo, and skip verification. */
   asReference?: boolean;
+  /** How many earlier whole-session attempts failed before this one (recorded in the sidecar). */
+  priorFailures?: number;
 }
 
 export interface DailyOutcome {
@@ -85,15 +87,24 @@ function dumpFrame(name: string, jpeg: Buffer): void {
   }
 }
 
+/**
+ * Errors worth trying again later: the camera or the Eufy relay was unreachable, not a bug or a
+ * login problem. The SDK's own wording is "P2P session for <sn> did not connect".
+ */
+export function isTransientError(e: unknown): boolean {
+  return /did not connect|timeout|timed out|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|not connected|fetch failed|socket hang up/i.test(
+    errorMessage(e),
+  );
+}
+
 /** The camera keeps the previous P2P session for ~15 s; a fresh connect inside that window times out. */
 async function withP2pRetry<T>(what: string, fn: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
     } catch (e) {
-      const msg = errorMessage(e);
-      if (attempt >= P2P_ATTEMPTS || !/timeout|timed out|ECONNRESET|not connected/i.test(msg)) throw e;
-      warn(`${what}: ${msg} — retrying in ${P2P_RETRY_MS / 1000}s`, { attempt });
+      if (attempt >= P2P_ATTEMPTS || !isTransientError(e)) throw e;
+      warn(`${what}: ${errorMessage(e)} — retrying in ${P2P_RETRY_MS / 1000}s`, { attempt });
       await sleep(P2P_RETRY_MS);
     }
   }
@@ -355,6 +366,7 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
   }
 
   const offPreset = verify ? !verify.onPreset : false;
+  if (opts.priorFailures) warnings.push(`camera unreachable on ${opts.priorFailures} earlier attempt(s); shot on attempt ${opts.priorFailures + 1}`);
   const firmware = firmwareOf(dev);
   const sidecar: Sidecar = {
     date: opts.date,

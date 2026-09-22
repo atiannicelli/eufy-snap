@@ -18,6 +18,7 @@ schedule:
   offset_min: 5                 # shoot this many minutes after the event (negative = before, e.g. -10 for 10 min before sunset)
   daemon_start: "04:00"         # launchd trigger; must be before the earliest shoot time of the year (default 04:00 for sunrise, 12:00 for sunset)
   catch_up_max_min: 180         # if the daemon starts late, still shoot if within this many minutes of fire time
+  retry_window_min: 30          # camera/relay unreachable at fire time? keep retrying every 2 min until this long after it
 
 capture:
   retries: 3                    # snapshot attempts (camera may still be waking)

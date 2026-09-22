@@ -17,7 +17,14 @@ export interface AppConfig {
     homePreset: number | undefined;
     settleMs: number;
   };
-  schedule: { event: SunEvent; offsetMin: number; daemonStart: { hour: number; minute: number }; catchUpMaxMin: number };
+  schedule: {
+    event: SunEvent;
+    offsetMin: number;
+    daemonStart: { hour: number; minute: number };
+    catchUpMaxMin: number;
+    /** Keep re-trying a run that could not reach the camera until fireAt + this many minutes. */
+    retryWindowMin: number;
+  };
   capture: {
     retries: number;
     minWidth: number;
@@ -137,6 +144,7 @@ export function loadConfig(explicit?: string): AppConfig {
       // The launchd trigger must precede the earliest fire time of the year: pre-dawn for sunrise, noon for sunset.
       daemonStart: parseHHMM(str(schedule, "daemon_start", event === "sunset" ? "12:00" : "04:00", "schedule"), "schedule.daemon_start"),
       catchUpMaxMin: num(schedule, "catch_up_max_min", 180, "schedule"),
+      retryWindowMin: num(schedule, "retry_window_min", 30, "schedule"),
     },
     capture: {
       retries: num(capture, "retries", 3, "capture"),

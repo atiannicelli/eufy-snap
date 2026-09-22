@@ -42,7 +42,9 @@ flowchart LR
 ```
 
 `run` is idempotent: it exits if today's photo already exists, waits if it is early, catches up if it
-is late by less than `catch_up_max_min`, and alerts + skips beyond that. A second concurrent `run` is
+is late by less than `catch_up_max_min`, and alerts + skips beyond that. If the camera or Eufy's relay
+cannot be reached at fire time, it retries the whole session every 2 min until `retry_window_min` has
+passed — a slightly late frame beats a missing day — and only then alerts. A second concurrent `run` is
 rejected by a lock file, and `RunAtLoad` makes a reboot or re-install harmless.
 
 ## Requirements
@@ -115,6 +117,7 @@ schedule:
   offset_min: -10               # minutes relative to the event; negative = before
   daemon_start: "12:00"         # launchd trigger; must precede the earliest shoot time of the year (04:00 sunrise / 12:00 sunset)
   catch_up_max_min: 180         # daemon started late? still shoot if within this many minutes
+  retry_window_min: 30          # camera unreachable at fire time? retry every 2 min until this long after it
 
 capture:
   retries: 3
@@ -214,7 +217,7 @@ the return) for a post-mortem.
 | `off preset` / exit 20 with a half-turned photo | Usually the above; re-take `reference` after fixing it, since it may be a mid-pan frame too. |
 | `home_preset N is not the camera's default …` | Either drop `home_preset` or make that preset the default in the app; the camera will not stay elsewhere. |
 | `shoot_preset N is not stored on the camera` | Slots are 0-based: app "preset 4" is slot 3. |
-| `P2P connect timeout` | The previous session has not been released yet (allow ~20 s between commands), or another `eufy-snap` is running. |
+| `P2P connect timeout` / `P2P session for … did not connect` | The camera or Eufy's relay was unreachable: previous session not yet released (allow ~20 s between commands), camera offline/asleep, or a network blip. Scheduled runs retry for `retry_window_min`; `snap` fails fast. |
 | exit 10 / "needs login" on Telegram | Eufy rejected the stored session. Run `login` once as the daemon's user. There is deliberately no automatic re-login loop — that is what triggers Eufy captchas. |
 
 ## Camera notes (SoloCam S340)
