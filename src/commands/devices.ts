@@ -37,6 +37,10 @@ export async function devicesCommand(opts: { json?: boolean }): Promise<void> {
     if (ptz) console.log(`    rotationSpeed: ${ptz.rotationSpeed ?? "(not set)"}`);
     const quality = describeStreamingQuality(dev.getProperty("streamingQuality"));
     if (quality) console.log(`    streamingQuality: ${quality}`);
+    const detection = dev.motion?.()?.detectionEnabled;
+    console.log(
+      `    motionDetection: ${detection === undefined ? "(not reported — the run cannot pause it)" : detection ? "on (paused during each run)" : "off"}`,
+    );
     const battery = dev.getProperty("battery");
     if (battery !== undefined) console.log(`    battery: ${JSON.stringify(battery)}`);
   }

@@ -7,6 +7,7 @@ import { createClient, login, sleep } from "./client.ts";
 import { describePreset, getDevice, isDefaultPreset, isStoredPreset, movePreset, requireCamera, requirePtz, type CameraApi } from "./commands/shared.ts";
 import { describeShift, frameShift, type ShiftResult } from "./frame-shift.ts";
 import { debug, errorMessage, info, warn } from "./log.ts";
+import { pauseMotionDetection, repairMotionDetection, type MotionPause } from "./motion-pause.ts";
 import { savePhoto, type SavedPhoto, type Sidecar } from "./store.ts";
 import type { SunPlan } from "./sun.ts";
 
@@ -249,7 +250,21 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
   let homePreset: number | undefined = cfg.camera.homePreset;
   let cameraDefault: number | undefined;
   let shot: Shot;
+  let motionPause: MotionPause | undefined;
+  // If we die between pause and restore, the next run (or a SIGTERM) puts the switch back.
+  const onSignal = (sig: NodeJS.Signals): void => {
+    warn(`${sig} — restoring motion detection and disconnecting`);
+    void (motionPause?.restore() ?? Promise.resolve())
+      .finally(() => eufy.disconnect().catch(() => undefined))
+      .finally(() => process.exit(sig === "SIGINT" ? 130 : 143));
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
   try {
+    await repairMotionDetection(dev, cfg.paths.motionPaused);
+    if (cfg.camera.pauseMotionDetection) {
+      motionPause = await withP2pRetry("pause motion detection", () => pauseMotionDetection(dev, cfg.paths.motionPaused, warnings));
+    }
     const presets = (await withP2pRetry("preset list", () => preset.list?.() ?? Promise.resolve([]))) ?? [];
     const stored = presets.filter(isStoredPreset).map((p) => p.id);
     cameraDefault = presets.find(isDefaultPreset)?.id;
@@ -273,6 +288,12 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
     }
 
     before = await quickFrame(cam, cfg.capture, "pre-move");
+    if (motionPause?.active) {
+      // A tracking event may still be finishing; a move issued mid-pan lands somewhere unrelated.
+      const rest = await settleUntilStill(cam, cfg, before, settleMs, "settle (pre-move)");
+      if (rest.frame) before = rest.frame;
+      if (rest.ms > SETTLE_MIN_MS + SETTLE_POLL_MS) info(`camera was moving before the run — still after ${(rest.ms / 1000).toFixed(1)} s`);
+    }
     lastFrame = before;
     info(`move to preset ${shootPreset}`);
     await withP2pRetry("move", () => movePreset(ptz, shootPreset));
@@ -362,6 +383,9 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
       warnings.push(`return home failed: ${errorMessage(e)}`);
       warn(warnings.at(-1)!);
     }
+    await motionPause?.restore();
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
     await eufy.disconnect().catch(() => undefined);
   }
 

@@ -12,6 +12,7 @@ camera:
   # home_preset: 0              # optional: where to park after the shot. Default = the camera's default preset, which is
                                 # where it returns by itself ~1 min after every session anyway — pick that in the Eufy app
   settle_ms: 20000              # MAX wait for a pan to finish; the run proceeds as soon as the view stops changing (a long pan takes ~16 s)
+  pause_motion_detection: true  # switch detection off while the run holds the camera (tracking would yank it off the preset); restored afterwards
 
 schedule:
   event: sunrise                # sunrise | sunset — which sun event the daily shot is anchored to
