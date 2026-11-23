@@ -224,7 +224,8 @@ Telegram delivery failed
 ### Telegram messages
 
 Success: the photo with caption `Sunset 2026-09-20 · sunset 18:40 · shot 18:30 · 2880×1616`.
-Off-preset: same photo, caption prefixed ⚠️. Failure: a text message with the error and a hint.
+Off-preset: same photo, same caption — it shows only in the log, the sidecar and exit code 20. Other
+warnings are appended as ⚠️ lines. Failure: a text message with the error and a hint.
 Silence therefore means the daemon did not run — check the log.
 
 ## Logging and troubleshooting

@@ -25,6 +25,9 @@ export function bootstrap(opts: GlobalOpts, runId: string): App {
   return { cfg, tg: telegramFromEnv(cfg.telegram.botTokenEnv, cfg.telegram.chatIdEnv) };
 }
 
+/** Warnings that stay in the log and the sidecar but are left out of the Telegram caption. */
+const CAPTION_QUIET = ["off preset", "camera does not report whether motion detection"];
+
 export function captionFor(cfg: AppConfig, o: DailyOutcome): string {
   const tz = cfg.location.timezone;
   const s = o.sidecar;
@@ -35,8 +38,7 @@ export function captionFor(cfg: AppConfig, o: DailyOutcome): string {
   bits.push(`${s.image.width}×${s.image.height}`);
   if (s.reason !== "scheduled") bits.push(`(${s.reason})`);
   let caption = bits.join(" · ");
-  if (s.offPreset) caption += `\n⚠️ camera appears OFF preset ${s.presets.shoot} — check the mount`;
-  for (const w of s.warnings.filter((w) => !w.startsWith("off preset"))) caption += `\n⚠️ ${w}`;
+  for (const w of s.warnings.filter((w) => !CAPTION_QUIET.some((q) => w.startsWith(q)))) caption += `\n⚠️ ${w}`;
   return caption;
 }
 
