@@ -75,7 +75,7 @@ program
 
 program
   .command("plan [date]")
-  .description("show the sun event (schedule.event) and shoot time for a date (default today)")
+  .description("show the sun events and shoot times (schedule) for a date (default today)")
   .option("--days <n>", "how many consecutive days to list", "1")
   .action((date: string | undefined, opts) => planCommand(date, withGlobals(opts)));
 
@@ -87,8 +87,8 @@ program
 
 program
   .command("run")
-  .description("daemon entry: wait for today's shoot time (or catch up if late), then snap")
-  .option("--at <HH:MM>", "override today's shoot time (testing)")
+  .description("daemon entry: wait for each of today's shoot times (or catch up if late), then snap")
+  .option("--at <HH:MM>", "move today's first shoot time here; later shots keep their spacing (testing)")
   .option("--no-telegram", "don't send to Telegram even if configured")
   .action((opts) => runCommand(withGlobals(opts)));
 

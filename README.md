@@ -1,8 +1,9 @@
 # eufy-snap
 
-Take one photo a day from a **Eufy SoloCam S340** at sunrise or sunset — always from the same saved
-preset, so the frames line up into a year-long time-lapse — keep every photo locally, and post each
-one to a Telegram chat. Runs unattended on an always-on Mac as a LaunchDaemon.
+Take one photo a day from a **Eufy SoloCam S340** at sunrise or sunset (or several, at different
+offsets) — always from the same saved preset, so the frames line up into a year-long time-lapse — keep
+every photo locally, and post each one to a Telegram chat. Runs unattended on an always-on Mac as a
+LaunchDaemon.
 
 Built on [`@mega-yfue/eufy-sdk`](https://github.com/mega-yfue/eufy-sdk) (the maintained successor to
 `eufy-security-client`). Eufy has no official API; everything here is reverse-engineered and may break
@@ -12,7 +13,7 @@ when Eufy changes something — the tool fails loudly and tells you on Telegram 
 
 Every day at `schedule.daemon_start`, launchd starts `eufy-snap run`. It computes today's sunrise or
 sunset (`schedule.event`) for your latitude/longitude, sleeps until that time plus `offset_min`
-(negative = before), then:
+(negative = before), then — once per shot when `schedule.shots` lists several:
 
 1. switches the camera's **motion detection off** for the duration (`pause_motion_detection`), so a
    tracking event cannot yank the camera off the preset or refuse the session, and waits for any pan in
@@ -25,7 +26,8 @@ sunset (`schedule.event`) for your latitude/longitude, sleeps until that time pl
 6. compares it with `reference.jpg` **and** with the pre-move frame; if the view is off, or the camera
    never moved, it moves again and re-shoots once
 7. saves `photos/YYYY/YYYY-MM-DD.jpg` plus a `.json` sidecar (timings, verification, motion, warnings);
-   a manual `snap` saves as `YYYY-MM-DD_HHMM.jpg` instead so it never stands in for the scheduled shot
+   an extra shot saves as `YYYY-MM-DD_sunset+10.jpg`, and a manual `snap` as `YYYY-MM-DD_HHMM.jpg` so
+   it never stands in for a scheduled shot
 8. moves home, waits until still, and checks the frame matches the pre-move one
 9. switches motion detection back **on** (also on error, on Ctrl-C/SIGTERM, and — via a marker file —
    at the start of the next run if a run was ever killed outright)
@@ -46,8 +48,8 @@ flowchart LR
     run <-->|"P2P: preset move, live stream"| cam["SoloCam S340"]
 ```
 
-`run` is idempotent: it exits if today's photo already exists, waits if it is early, catches up if it
-is late by less than `catch_up_max_min`, and alerts + skips beyond that. If the camera or Eufy's relay
+`run` is idempotent: for each shot it does nothing if that photo already exists, waits if it is early,
+catches up if it is late by less than `catch_up_max_min`, and alerts + skips beyond that. If the camera or Eufy's relay
 cannot be reached at fire time, it retries the whole session every 2 min until `retry_window_min` has
 passed — a slightly late frame beats a missing day — and only then alerts. A second concurrent `run` is
 rejected by a lock file, and `RunAtLoad` makes a reboot or re-install harmless.
@@ -125,6 +127,9 @@ schedule:
   daemon_start: "12:00"         # launchd trigger; must precede the earliest shoot time of the year (04:00 sunrise / 12:00 sunset)
   catch_up_max_min: 180         # daemon started late? still shoot if within this many minutes
   retry_window_min: 30          # camera unreachable at fire time? retry every 2 min until this long after it
+  # shots:                      # several photos a day: replaces event/offset_min above
+  #   - { event: sunset, offset_min: -10 }
+  #   - { event: sunset, offset_min: 10 }
 
 capture:
   retries: 3
@@ -146,6 +151,13 @@ telegram:
   bot_token_env: TELEGRAM_BOT_TOKEN
 ```
 
+**Several shots a day.** `schedule.shots` is a list of `event` + `offset_min` pairs and replaces the
+single `event`/`offset_min`. One `run` takes them in fire-time order, each a full session from the same
+`shoot_preset` with its own Telegram post, catch-up and retry window. The first entry keeps the bare
+`YYYY-MM-DD.jpg` name, so an existing series continues unchanged; the others append the event and
+offset, e.g. `2026-09-20_sunset+10.jpg`. `daemon_start` must precede the earliest of them (it defaults
+to 04:00 if any shot is at sunrise). The exit code is the highest of the day's shots.
+
 **Preset numbering.** The Eufy app shows presets 1–4; the camera stores them in slots 0–3. Config uses
 **camera slots** — app "preset 4" is `shoot_preset: 3`. `presets <serial>` prints both numberings and
 marks the default.
@@ -154,7 +166,7 @@ marks the default.
 the camera pans away from the preset, and a P2P session may be refused while it records. With
 `pause_motion_detection: true` (default) the run flips the app's motion-detection switch off first and
 on again last, and only if the camera reports it as on; `devices` shows the current state. The switch
-is off for about a minute per day. Set it to `false` to never touch the setting.
+is off for about a minute per shot. Set it to `false` to never touch the setting.
 
 **Where the camera rests.** The S340 returns to its *default* preset by itself about a minute after
 every live session. So the default preset **is** your security view; `home_preset` is only useful for
@@ -182,7 +194,7 @@ daemon so it re-reads them:
 ```bash
 sudo launchctl kickstart -k system/com.eufysnap.daily
 tail -f ~/.eufy-snap/logs/eufy-snap.log
-node dist/cli.js run --at 17:45 --no-telegram     # rehearse the wait/shoot path at a chosen time
+node dist/cli.js run --at 17:45 --no-telegram     # rehearse the wait/shoot path at a chosen time (later shots keep their spacing)
 ```
 
 ## Commands
@@ -193,9 +205,9 @@ node dist/cli.js run --at 17:45 --no-telegram     # rehearse the wait/shoot path
 | `devices [--json]` | Cameras, capabilities, serials, live-view Streaming Quality. |
 | `presets <serial>` | Preset slots with app numbering and the default; `--goto`, `--save`, `--set-default`, `--image <id>` (download the slot's thumbnail). |
 | `reference` | Capture the verification frame from `shoot_preset`; keeps the previous as `reference.prev.jpg`. |
-| `plan [date] [--days n]` | Sun event and shoot time per day; flags days that would fire before `daemon_start`. |
+| `plan [date] [--days n]` | Sun events and shoot times per day; flags days that would fire before `daemon_start`. |
 | `snap [--no-telegram]` | Do the whole daily sequence now. Saves as `YYYY-MM-DD_HHMM.jpg`; never counts as the day's scheduled photo. |
-| `run [--at HH:MM] [--no-telegram]` | Daemon entry point: wait / catch up / skip, then snap. |
+| `run [--at HH:MM] [--no-telegram]` | Daemon entry point: for each of the day's shots, wait / catch up / skip, then snap. |
 | `telegram-test [--photo]` | Send a test message (or `reference.jpg`) to the configured chat without touching the camera. |
 | `install [--print] [--node path]` | Render the LaunchDaemon plist and print the activation steps. |
 | `dev …` | Low-level experiments: `rotate`, `snapshot`, `watch`, `sequence`, `sweep`. |
@@ -271,7 +283,7 @@ upgrade with `snap` before letting the daemon pick it up.
 ## Not (yet) covered
 
 Video, motion events, multiple cameras, a web UI, weather-aware skipping, log rotation, and the
-time-lapse assembly itself (a one-liner: `ffmpeg -pattern_type glob -i '~/.eufy-snap/photos/*/*.jpg' …`).
+time-lapse assembly itself (a one-liner: `ffmpeg -pattern_type glob -i '~/.eufy-snap/photos/*/????-??-??.jpg' …`).
 
 ## License
 

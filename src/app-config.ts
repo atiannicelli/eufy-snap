@@ -2,10 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { stateDir } from "./config.ts";
-import { SUN_EVENTS, type SunEvent } from "./sun.ts";
+import { describeSchedule, shotSuffix, SUN_EVENTS, type SunEvent, type SunSchedule } from "./sun.ts";
 
 /** A full pan between presets takes up to ~18 s on the S340; a shorter settle cap means mid-pan shots. */
 const MIN_SANE_SETTLE_MS = 15_000;
+
+export interface ScheduledShot extends SunSchedule {
+  /** Appended to the dated file name. The first shot has none and keeps the bare `YYYY-MM-DD` name. */
+  fileSuffix: string | undefined;
+}
 
 /** Fully resolved, validated application configuration (see config.example.yaml). */
 export interface AppConfig {
@@ -20,8 +25,8 @@ export interface AppConfig {
     pauseMotionDetection: boolean;
   };
   schedule: {
-    event: SunEvent;
-    offsetMin: number;
+    /** The day's shots in config order; never empty. */
+    shots: readonly [ScheduledShot, ...ScheduledShot[]];
     daemonStart: { hour: number; minute: number };
     catchUpMaxMin: number;
     /** Keep re-trying a run that could not reach the camera until fireAt + this many minutes. */
@@ -105,6 +110,46 @@ function assertTimezone(tz: string): void {
   }
 }
 
+function sunEvent(sec: Raw, fallback: string | undefined, where: string): SunEvent {
+  const event = str(sec, "event", fallback, where);
+  if (!(SUN_EVENTS as readonly string[]).includes(event)) throw new Error(`config: "${where}.event" must be one of ${SUN_EVENTS.join(", ")}, got "${event}"`);
+  return event as SunEvent;
+}
+
+/** `schedule.shots`, or the single shot described by `schedule.event` / `schedule.offset_min`. */
+function parseShots(schedule: Raw): AppConfig["schedule"]["shots"] {
+  let shots: SunSchedule[];
+  const list = schedule.shots;
+  if (list === undefined || list === null) {
+    const event = sunEvent(schedule, "sunrise", "schedule");
+    let offsetMin = optNum(schedule, "offset_min", "schedule");
+    if (offsetMin === undefined && schedule.sunrise_offset_min !== undefined) {
+      if (event !== "sunrise") throw new Error(`config: "schedule.sunrise_offset_min" makes no sense with event "${event}" — use "offset_min"`);
+      console.warn('config: "schedule.sunrise_offset_min" is deprecated — rename it to "offset_min"');
+      offsetMin = num(schedule, "sunrise_offset_min", undefined, "schedule");
+    }
+    shots = [{ event, offsetMin: offsetMin ?? 0 }];
+  } else {
+    if (!Array.isArray(list) || list.length === 0) throw new Error('config: "schedule.shots" must be a non-empty list');
+    for (const key of ["event", "offset_min", "sunrise_offset_min"]) {
+      if (schedule[key] !== undefined) throw new Error(`config: "schedule.${key}" cannot be combined with "schedule.shots" — move it into the list`);
+    }
+    shots = list.map((item: unknown, i) => {
+      const where = `schedule.shots[${i}]`;
+      if (item === null || typeof item !== "object" || Array.isArray(item)) throw new Error(`config: "${where}" must be a mapping with event and offset_min`);
+      return { event: sunEvent(item as Raw, undefined, where), offsetMin: num(item as Raw, "offset_min", 0, where) };
+    });
+  }
+  const seen = new Set<string>();
+  for (const s of shots) {
+    if (seen.has(shotSuffix(s))) throw new Error(`config: "schedule.shots" lists ${describeSchedule(s)} more than once`);
+    seen.add(shotSuffix(s));
+  }
+  const [first, ...extra] = shots;
+  if (!first) throw new Error('config: "schedule.shots" must be a non-empty list');
+  return [{ ...first, fileSuffix: undefined }, ...extra.map((s) => ({ ...s, fileSuffix: shotSuffix(s) }))];
+}
+
 export function loadConfig(explicit?: string): AppConfig {
   const file = configFile(explicit);
   if (!fs.existsSync(file)) {
@@ -126,14 +171,9 @@ export function loadConfig(explicit?: string): AppConfig {
   const timezone = str(location, "timezone", undefined, "location");
   assertTimezone(timezone);
 
-  const event = str(schedule, "event", "sunrise", "schedule");
-  if (!(SUN_EVENTS as readonly string[]).includes(event)) throw new Error(`config: "schedule.event" must be one of ${SUN_EVENTS.join(", ")}, got "${event}"`);
-  let offsetMin = optNum(schedule, "offset_min", "schedule");
-  if (offsetMin === undefined && schedule.sunrise_offset_min !== undefined) {
-    if (event !== "sunrise") throw new Error(`config: "schedule.sunrise_offset_min" makes no sense with event "${event}" — use "offset_min"`);
-    console.warn('config: "schedule.sunrise_offset_min" is deprecated — rename it to "offset_min"');
-    offsetMin = num(schedule, "sunrise_offset_min", undefined, "schedule");
-  }
+  const shots = parseShots(schedule);
+  // The launchd trigger must precede the earliest fire time of the year: pre-dawn for sunrise, noon for sunset.
+  const defaultDaemonStart = shots.some((s) => s.event === "sunrise") ? "04:00" : "12:00";
 
   const cfg: AppConfig = {
     location: {
@@ -149,10 +189,8 @@ export function loadConfig(explicit?: string): AppConfig {
       pauseMotionDetection: bool(camera, "pause_motion_detection", true, "camera"),
     },
     schedule: {
-      event: event as SunEvent,
-      offsetMin: offsetMin ?? 0,
-      // The launchd trigger must precede the earliest fire time of the year: pre-dawn for sunrise, noon for sunset.
-      daemonStart: parseHHMM(str(schedule, "daemon_start", event === "sunset" ? "12:00" : "04:00", "schedule"), "schedule.daemon_start"),
+      shots,
+      daemonStart: parseHHMM(str(schedule, "daemon_start", defaultDaemonStart, "schedule"), "schedule.daemon_start"),
       catchUpMaxMin: num(schedule, "catch_up_max_min", 180, "schedule"),
       retryWindowMin: num(schedule, "retry_window_min", 30, "schedule"),
     },

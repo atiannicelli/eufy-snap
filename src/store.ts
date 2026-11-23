@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { localDate, localTime, type SunEvent } from "./sun.ts";
+import { localTime, type SunEvent } from "./sun.ts";
 
 /** Everything worth knowing about one photo, written next to it as JSON. */
 export interface Sidecar {
@@ -33,22 +33,27 @@ export interface SavedPhoto {
   sidecar: string;
 }
 
-/** Path a scheduled photo for `date` would have — used to answer "did today already happen?". */
-export function scheduledPhotoPath(dir: string, date: string): string {
-  return path.join(dir, date.slice(0, 4), `${date}.jpg`);
+/** `YYYY-MM-DD` for the day's first shot, `YYYY-MM-DD_<suffix>` for the extra ones. */
+function scheduledBase(date: string, suffix: string | undefined): string {
+  return suffix ? `${date}_${suffix}` : date;
+}
+
+/** Path a scheduled photo for `date` would have — used to answer "did this shot already happen?". */
+export function scheduledPhotoPath(dir: string, date: string, suffix?: string): string {
+  return path.join(dir, date.slice(0, 4), `${scheduledBase(date, suffix)}.jpg`);
 }
 
 /**
- * Save `photos/YYYY/YYYY-MM-DD.jpg` + `.json`. Only the scheduled run (and its catch-up) may claim
- * that name — `run` treats its existence as "today is done". A manual `snap` always saves as
- * `YYYY-MM-DD_HHMM.jpg`, so testing during the day never suppresses the evening shot. Nothing is
- * ever overwritten.
+ * Save `photos/YYYY/YYYY-MM-DD.jpg` + `.json` (`YYYY-MM-DD_<suffix>.jpg` for an extra shot). Only the
+ * scheduled run (and its catch-up) may claim those names — `run` treats their existence as "this shot
+ * is done". A manual `snap` always saves as `YYYY-MM-DD_HHMM.jpg`, so testing during the day never
+ * suppresses the evening shot. Nothing is ever overwritten.
  */
-export function savePhoto(dir: string, jpeg: Buffer, meta: Sidecar, tz: string): SavedPhoto {
+export function savePhoto(dir: string, jpeg: Buffer, meta: Sidecar, tz: string, suffix?: string): SavedPhoto {
   const year = meta.date.slice(0, 4);
   fs.mkdirSync(path.join(dir, year), { recursive: true });
   const canonical = meta.reason === "scheduled" || meta.reason === "catch-up";
-  let base = meta.date;
+  let base = scheduledBase(meta.date, suffix);
   if (!canonical || fs.existsSync(path.join(dir, year, `${base}.jpg`))) {
     const stamped = `${meta.date}_${localTime(new Date(meta.shotAt), tz).replace(":", "")}`;
     base = stamped;
@@ -62,6 +67,6 @@ export function savePhoto(dir: string, jpeg: Buffer, meta: Sidecar, tz: string):
   return { file, sidecar };
 }
 
-export function todayHasPhoto(dir: string, now: Date, tz: string): boolean {
-  return fs.existsSync(scheduledPhotoPath(dir, localDate(now, tz)));
+export function hasScheduledPhoto(dir: string, date: string, suffix?: string): boolean {
+  return fs.existsSync(scheduledPhotoPath(dir, date, suffix));
 }

@@ -45,6 +45,8 @@ export interface DailyOptions {
   reason: Sidecar["reason"];
   date: string;
   plan?: SunPlan;
+  /** File-name suffix of an extra scheduled shot; the day's first shot has none. */
+  fileSuffix?: string | undefined;
   /** Write `reference.jpg` instead of a dated photo, and skip verification. */
   asReference?: boolean;
   /** How many earlier whole-session attempts failed before this one (recorded in the sidecar). */
@@ -416,7 +418,7 @@ export async function runDaily(cfg: AppConfig, opts: DailyOptions): Promise<Dail
     info("reference written", { file: cfg.paths.reference, width: shot.width, height: shot.height });
     return { jpeg: shot.jpeg, sidecar, file: cfg.paths.reference, exitCode: 0 };
   }
-  const saved = savePhoto(cfg.store.dir, shot.jpeg, sidecar, cfg.location.timezone);
+  const saved = savePhoto(cfg.store.dir, shot.jpeg, sidecar, cfg.location.timezone, opts.fileSuffix);
   info("saved", { file: saved.file, offPreset, durationMs: sidecar.durationMs });
   return { jpeg: shot.jpeg, sidecar, file: saved.file, saved, exitCode: offPreset ? 20 : 0 };
 }

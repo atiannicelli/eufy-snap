@@ -72,3 +72,8 @@ export function planToday(loc: { lat: number; lon: number; timezone: string }, s
 export function describeSchedule(s: SunSchedule): string {
   return `${s.event} ${s.offsetMin >= 0 ? "+" : "−"}${Math.abs(s.offsetMin)} min`;
 }
+
+/** "sunset+10" / "sunrise-5" — what tells an extra shot's file apart from the day's first one. */
+export function shotSuffix(s: SunSchedule): string {
+  return `${s.event}${s.offsetMin >= 0 ? "+" : "-"}${Math.abs(s.offsetMin)}`;
+}

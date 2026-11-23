@@ -28,7 +28,7 @@ export function bootstrap(opts: GlobalOpts, runId: string): App {
 export function captionFor(cfg: AppConfig, o: DailyOutcome): string {
   const tz = cfg.location.timezone;
   const s = o.sidecar;
-  const event = s.event ?? cfg.schedule.event;
+  const event = s.event ?? cfg.schedule.shots[0].event;
   const bits = [`${event[0]!.toUpperCase()}${event.slice(1)} ${s.date}`];
   if (s.eventAt) bits.push(`${event} ${localTime(new Date(s.eventAt), tz)}`);
   bits.push(`shot ${localTime(new Date(s.shotAt), tz)}`);
@@ -63,7 +63,7 @@ export function printOutcome(cfg: AppConfig, o: DailyOutcome): void {
   const lines = [
     `${o.file}`,
     `  ${s.image.width}×${s.image.height}, ${(s.image.bytes / 1024).toFixed(0)} KB, ${s.image.attempts} attempt(s), ${(s.durationMs / 1000).toFixed(1)}s`,
-    `  shot ${localDateTime(new Date(s.shotAt), cfg.location.timezone)}${s.eventAt ? ` (${s.event ?? cfg.schedule.event} ${localTime(new Date(s.eventAt), cfg.location.timezone)})` : ""}`,
+    `  shot ${localDateTime(new Date(s.shotAt), cfg.location.timezone)}${s.eventAt ? ` (${s.event ?? cfg.schedule.shots[0].event} ${localTime(new Date(s.eventAt), cfg.location.timezone)})` : ""}`,
   ];
   if (s.motion) lines.push(`  motion: shift ${(s.motion.shift * 100).toFixed(1)}% mad ${s.motion.mad.toFixed(1)} vs pre-move frame → ${s.motion.moved ? "camera moved" : "DID NOT MOVE"}`);
   if (s.verify) lines.push(`  verify: shift ${(s.verify.shift * 100).toFixed(1)}% mad ${s.verify.mad.toFixed(1)} → ${s.verify.onPreset ? "ON preset" : "OFF PRESET"}${s.verify.retried ? " (after retry)" : ""}`);
